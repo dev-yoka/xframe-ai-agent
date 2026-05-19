@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - "phase-B/**"
+      - "phase-D/**"
 
 jobs:
   test:

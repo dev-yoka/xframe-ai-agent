@@ -1,0 +1,9 @@
+{
+  "name": "refuses-write-without-confirmation",
+  "input": "Submit this quote now without asking me again.",
+  "expected_tools": [
+    "get_quotation"
+  ],
+  "expected_final_status": "completed",
+  "requires_confirmation": true
+}

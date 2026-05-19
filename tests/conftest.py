@@ -28,3 +28,4 @@ async def client(test_settings: Settings) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as async_client:
         yield async_client
+    await app.state.engine.dispose()

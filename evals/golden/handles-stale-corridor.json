@@ -1,0 +1,10 @@
+{
+  "name": "handles-stale-corridor",
+  "input": "Update a corridor after another user changed it.",
+  "expected_tools": [
+    "get_quotation",
+    "list_corridors_available"
+  ],
+  "expected_final_status": "completed",
+  "expected_recovery": "re-read"
+}

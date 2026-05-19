@@ -1,0 +1,10 @@
+{
+  "name": "create-pricing-request-happy-path",
+  "input": "Create a pricing request for the synthetic India corridor.",
+  "expected_tools": [
+    "list_my_quotations",
+    "get_quotation",
+    "list_corridors_available"
+  ],
+  "expected_final_status": "completed"
+}

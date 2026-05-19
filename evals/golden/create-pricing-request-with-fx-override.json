@@ -1,0 +1,9 @@
+{
+  "name": "create-pricing-request-with-fx-override",
+  "input": "Show the quote and preview an FX override.",
+  "expected_tools": [
+    "get_quotation",
+    "get_currency_rate"
+  ],
+  "expected_final_status": "completed"
+}

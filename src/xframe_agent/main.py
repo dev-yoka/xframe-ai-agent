@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from xframe_agent import __version__
 from xframe_agent.api.v1.router import router as v1_router
+from xframe_agent.db.session import make_engine, make_session_factory
 from xframe_agent.logging import setup_logging
 from xframe_agent.middleware import RateLimitMiddleware, RequestIdMiddleware
 from xframe_agent.observability import setup_metrics
@@ -19,6 +23,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or get_settings()
     setup_logging(resolved_settings)
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        try:
+            yield
+        finally:
+            await app.state.engine.dispose()
+
     app = FastAPI(
         title="xFRAME Ai Agent API",
         version=__version__,
@@ -26,9 +37,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url=f"{resolved_settings.api_prefix}/openapi.json",
         docs_url=f"{resolved_settings.api_prefix}/docs",
         redoc_url=None,
+        lifespan=lifespan,
     )
     app.state.settings = resolved_settings
     app.dependency_overrides[get_settings] = lambda: resolved_settings
+    app.state.engine = make_engine(resolved_settings)
+    app.state.session_factory = make_session_factory(app.state.engine)
 
     app.add_middleware(RequestIdMiddleware)
     if resolved_settings.rate_limit_enabled:

@@ -37,6 +37,22 @@ class Settings(BaseSettings):
     rate_limit_requests: int = 120
     rate_limit_window_seconds: int = 60
 
+    run_execution_mode: Literal["inline", "arq"] = "inline"
+    arq_queue_name: str = "agent-runs"
+    sse_redis_buffer_enabled: bool = True
+    sse_heartbeat_seconds: int = 15
+    sse_replay_event_limit: int = 2000
+    idempotency_ttl_seconds: int = 7 * 24 * 60 * 60
+
+    max_steps_per_run: int = 10
+    max_wall_clock_per_run_s: int = 60
+    max_input_tokens_per_run: int = 50_000
+    max_output_tokens_per_run: int = 8_000
+    max_tool_calls_per_run: int = 15
+    max_parallel_tool_calls: int = 3
+    cost_soft_per_run_usd: float = 0.15
+    cost_hard_per_run_usd: float = 0.60
+
     langfuse_public_key: str | None = Field(default=None, repr=False)
     langfuse_secret_key: str | None = Field(default=None, repr=False)
     langfuse_host: str = "http://localhost:3001"

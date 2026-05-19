@@ -9,6 +9,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+import xframe_agent.models  # noqa: F401
 from xframe_agent.db.base import Base
 from xframe_agent.settings import get_settings
 

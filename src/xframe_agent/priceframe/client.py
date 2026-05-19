@@ -59,15 +59,49 @@ class PriceFrameClient:
     async def get_profile(self, jwt_raw: str) -> Mapping[str, Any]:
         """Return the current PriceFRAME auth profile for a user JWT."""
 
-        response = await self._request(
-            "GET",
-            "/api/auth/profile",
-            headers={"Authorization": f"Bearer {jwt_raw}"},
-        )
-        payload = response.json()
+        payload = await self.get_json("/api/auth/profile", jwt_raw=jwt_raw)
         if not isinstance(payload, Mapping):
             raise PriceFrameResponseError("PriceFRAME profile response was not a JSON object")
         return cast(Mapping[str, Any], payload)
+
+    async def get_json(
+        self,
+        path: str,
+        *,
+        jwt_raw: str,
+        params: Mapping[str, Any] | None = None,
+    ) -> Any:
+        """GET a JSON payload from PriceFRAME with JWT pass-through."""
+
+        response = await self._request(
+            "GET",
+            path,
+            headers={"Authorization": f"Bearer {jwt_raw}"},
+            params=params,
+        )
+        return response.json()
+
+    async def post_json(
+        self,
+        path: str,
+        *,
+        jwt_raw: str,
+        json: Mapping[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> Any:
+        """POST a JSON payload to PriceFRAME with JWT pass-through."""
+
+        request_headers = {"Authorization": f"Bearer {jwt_raw}"}
+        if headers:
+            request_headers.update(headers)
+        response = await self._request(
+            "POST",
+            path,
+            headers=request_headers,
+            json=json,
+        )
+        payload = response.json()
+        return payload
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         last_error: PriceFrameError | None = None

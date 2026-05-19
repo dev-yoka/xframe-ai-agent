@@ -8,4 +8,4 @@ Public API:
 - `xframe_agent.main:app`
 - `xframe_agent.settings:get_settings`
 
-Extension point: future phases add agent loop, tool registry, provider adapters, and worker entry points under this package without changing PriceFRAME.
+Extension point: Phase E adds write confirmation, attachment pipelines, memory, and audit callbacks without changing PriceFRAME access patterns.

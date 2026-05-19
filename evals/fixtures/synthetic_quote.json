@@ -1,0 +1,14 @@
+{
+  "quote_id": 1001,
+  "customer": "Synthetic Exporter Ltd",
+  "source_currency": "USD",
+  "target_currency": "INR",
+  "corridors": [
+    {
+      "corridor_id": 501,
+      "country": "India",
+      "minimum_spread": "0.2000",
+      "applied_fx_spread": "0.2500"
+    }
+  ]
+}
