@@ -5,8 +5,11 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
+from starlette.requests import Request
 
 from xframe_agent import __version__
 from xframe_agent.api.v1.router import router as v1_router
@@ -14,6 +17,7 @@ from xframe_agent.db.session import make_engine, make_session_factory
 from xframe_agent.logging import setup_logging
 from xframe_agent.middleware import RateLimitMiddleware, RequestIdMiddleware
 from xframe_agent.observability import setup_metrics
+from xframe_agent.schemas.errors import ErrorDetail, ErrorResponse
 from xframe_agent.settings import Settings, get_settings
 
 
@@ -54,6 +58,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
     )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422,
+            content=ErrorResponse(
+                error=ErrorDetail(
+                    code="validation_error",
+                    message="Request validation failed",
+                    detail=str(exc.errors()),
+                )
+            ).model_dump(),
+        )
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=ErrorResponse(
+                error=ErrorDetail(code=f"http_{exc.status_code}", message=str(exc.detail))
+            ).model_dump(),
+        )
+
+    @app.exception_handler(Exception)
+    async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        return JSONResponse(
+            status_code=500,
+            content=ErrorResponse(
+                error=ErrorDetail(code="internal_error", message="An unexpected error occurred")
+            ).model_dump(),
+        )
 
     app.include_router(v1_router, prefix=resolved_settings.api_prefix)
     setup_metrics(app, resolved_settings)

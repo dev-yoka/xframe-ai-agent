@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 class ConversationCreate(BaseModel):
     title: str = Field(default="New conversation", min_length=1, max_length=200)
+    kind: str = "general"
 
 
 class ConversationUpdate(BaseModel):
@@ -21,6 +22,7 @@ class ConversationUpdate(BaseModel):
 class ConversationResponse(BaseModel):
     id: str
     title: str
+    kind: str = "general"
     pinned: bool
     archived: bool
     created_at: datetime
@@ -29,6 +31,8 @@ class ConversationResponse(BaseModel):
 
 class ConversationListResponse(BaseModel):
     conversations: list[ConversationResponse]
+    next_cursor: str | None = None
+    has_more: bool = False
 
 
 class MessageCreate(BaseModel):
