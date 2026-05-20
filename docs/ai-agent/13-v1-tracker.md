@@ -191,3 +191,23 @@ Once all items above are `DONE`:
 | V1.7 | Mobile polish | ✅ DONE | `schemas/errors.py`, error handlers, pagination, docs |
 
 **Progress:** 7 of 7 items complete (100%). v1 is code-complete — ready for manual e2e testing and deployment.
+
+---
+
+## Post-v1 hardening (2026-05-20, post-merge)
+
+Two backlog items from the handbook (`docs/handbook/15-improvements.md`) were
+shipped immediately after v1 to close gaps the deep code review surfaced:
+
+- **§15.1 — Wire `ModelRunner` into the HTTP path.** New `agent/dispatch.py`
+  selects `ModelRunner` (when a provider is configured) or `AgentLoop`
+  (deterministic fallback). `POST /messages`, `POST /runs`, and the arq worker
+  all route through `execute_run`. Adds `agent/history.py` for conversation
+  history loading and `provider/factory.py` for router construction.
+- **§15.4 — Feed tool errors back to the model.** Unknown tool, schema
+  validation, PriceFRAME, and local-validation errors are now surfaced to the
+  model as synthetic `tool_result` blocks so it can self-correct.
+
+All 40 tests pass (37 v1 + 2 dispatch + 1 error-feedback). `ruff`, `mypy`, and
+`openapi.yaml` clean. No schema changes.
+

@@ -37,6 +37,7 @@ from xframe_agent.models import (
 )
 from xframe_agent.models.agent import utc_now
 from xframe_agent.priceframe import PriceFrameClient
+from xframe_agent.priceframe.errors import PriceFrameError
 from xframe_agent.provider.base import (
     ChatMessage,
     ContentBlock,
@@ -285,6 +286,7 @@ class ModelRunner:
         readers: list[tuple[ProposedCall, ToolDefinition[Any, Any], AgentToolCall, Any]] = []
         writers: list[tuple[ProposedCall, ToolDefinition[Any, Any], AgentToolCall]] = []
 
+        error_results: list[ToolExecutionResult] = []
         for proposal in proposal_list:
             tool = tool_registry.get(proposal.name)
             if tool is None:
@@ -293,6 +295,16 @@ class ModelRunner:
                     run_id=run.id,
                     event_type="v1.tool.error",
                     payload={"cause": "unknown_tool", "name": proposal.name},
+                )
+                error_results.append(
+                    _build_error_result(
+                        proposal,
+                        cause="unknown_tool",
+                        detail=(
+                            f"Tool '{proposal.name}' is not registered "
+                            "or not available to this user."
+                        ),
+                    )
                 )
                 continue
             try:
@@ -307,6 +319,13 @@ class ModelRunner:
                         "name": proposal.name,
                         "detail": str(exc),
                     },
+                )
+                error_results.append(
+                    _build_error_result(
+                        proposal,
+                        cause="schema_validation_failed",
+                        detail=str(exc),
+                    )
                 )
                 continue
 
@@ -357,7 +376,7 @@ class ModelRunner:
             else:
                 writers.append((proposal, tool, tool_call))
 
-        results: list[ToolExecutionResult] = []
+        results: list[ToolExecutionResult] = list(error_results)
         if readers:
             sem = asyncio.Semaphore(self._settings.max_parallel_tool_calls)
 
@@ -414,7 +433,27 @@ class ModelRunner:
             event_type="v1.tool.started",
             payload={"tool_call_id": record.id, "tool_name": tool.name},
         )
-        result_model = await tool.execute(parsed, context, self._priceframe)
+        try:
+            result_model = await tool.execute(parsed, context, self._priceframe)
+        except PriceFrameError as exc:
+            return await self._record_tool_failure(
+                session,
+                proposal=proposal,
+                tool=tool,
+                record=record,
+                cause="priceframe_error",
+                detail=str(exc),
+            )
+        except ValueError as exc:
+            # Local tool-side validation (e.g., SetFxSpread applied < minimum).
+            return await self._record_tool_failure(
+                session,
+                proposal=proposal,
+                tool=tool,
+                record=record,
+                cause="tool_validation_error",
+                detail=str(exc),
+            )
         dumped = result_model.model_dump(mode="json")
         projected = tool.project_for_model(dumped)
         record.status = "succeeded"
@@ -427,6 +466,32 @@ class ModelRunner:
             payload={"tool_call_id": record.id, "result": projected},
         )
         return ToolExecutionResult(proposal=proposal, output=projected, risk=tool.risk)
+
+    async def _record_tool_failure(
+        self,
+        session: AsyncSession,
+        *,
+        proposal: ProposedCall,
+        tool: ToolDefinition[Any, Any],
+        record: AgentToolCall,
+        cause: str,
+        detail: str,
+    ) -> ToolExecutionResult:
+        record.status = "failed"
+        record.error = detail
+        record.completed_at = utc_now()
+        await append_run_event(
+            session,
+            run_id=record.run_id,
+            event_type="v1.tool.error",
+            payload={
+                "tool_call_id": record.id,
+                "tool_name": tool.name,
+                "cause": cause,
+                "detail": detail,
+            },
+        )
+        return _build_error_result(proposal, cause=cause, detail=detail)
 
     async def _open_step(
         self,
@@ -488,6 +553,26 @@ def _consume_event(
             "output_tokens": int(event.payload.get("output_tokens", usage["output_tokens"])),
         }
     return text, usage
+
+
+def _build_error_result(
+    proposal: ProposedCall,
+    *,
+    cause: str,
+    detail: str,
+) -> ToolExecutionResult:
+    """Surface a tool failure to the model as a tool_result so it can react.
+
+    Without this the model never sees the failure and the next iteration would
+    re-propose the same broken call. The harness still records the error event
+    durably; this just feeds the structured error back into messages.
+    """
+
+    return ToolExecutionResult(
+        proposal=proposal,
+        output={"error": {"cause": cause, "detail": detail}},
+        risk="READ",
+    )
 
 
 __all__ = ["ModelRunner", "LoopDetectedError", "ProposedCall"]

@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     gemini_vertex_location: str = "us-central1"
     gemini_aistudio_api_key: str | None = Field(default=None, repr=False)
     anthropic_api_key: str | None = Field(default=None, repr=False)
+    default_model: str = "gemini-2.5-flash"
 
     @field_validator("api_prefix")
     @classmethod

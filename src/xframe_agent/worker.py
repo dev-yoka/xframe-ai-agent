@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 from arq.connections import RedisSettings, create_pool
 
-from xframe_agent.agent.loop import AgentLoop
+from xframe_agent.agent.dispatch import execute_run
 from xframe_agent.attachments import scan_bytes, storage_from_settings
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.db.session import make_engine, make_session_factory
@@ -41,7 +41,7 @@ async def run_agent_job(
     )
     try:
         async with session_factory() as session:
-            await AgentLoop().run(session, run_id=run_id, context=auth_context)
+            await execute_run(session, settings=settings, run_id=run_id, context=auth_context)
     finally:
         await engine.dispose()
 
