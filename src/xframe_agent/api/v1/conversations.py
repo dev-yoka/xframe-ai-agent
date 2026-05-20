@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,7 +56,7 @@ async def create_conversation(
         response.headers["Idempotency-Replayed"] = "true"
         return ConversationResponse.model_validate(replay.response_payload)
 
-    conversation = AgentConversation(user_id=auth.user_id, title=payload.title)
+    conversation = AgentConversation(user_id=auth.user_id, title=payload.title, kind=payload.kind)
     session.add(conversation)
     await session.flush()
     result = conversation_response(conversation)
@@ -74,14 +74,29 @@ async def create_conversation(
 
 
 @router.get("/conversations", response_model=ConversationListResponse)
-async def list_conversations(session: SessionDep, auth: AuthDep) -> ConversationListResponse:
-    result = await session.execute(
+async def list_conversations(
+    session: SessionDep,
+    auth: AuthDep,
+    limit: int = Query(default=20, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+) -> ConversationListResponse:
+    query = (
         select(AgentConversation)
         .where(AgentConversation.user_id == auth.user_id, AgentConversation.deleted_at.is_(None))
-        .order_by(AgentConversation.updated_at.desc())
+        .order_by(AgentConversation.id.desc())
+        .limit(limit + 1)
     )
+    if cursor is not None:
+        query = query.where(AgentConversation.id < cursor)
+    result = await session.execute(query)
+    rows = result.scalars().all()
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    next_cursor = page[-1].id if has_more and page else None
     return ConversationListResponse(
-        conversations=[conversation_response(row) for row in result.scalars().all()]
+        conversations=[conversation_response(row) for row in page],
+        next_cursor=next_cursor,
+        has_more=has_more,
     )
 
 
@@ -252,6 +267,7 @@ def conversation_response(conversation: AgentConversation) -> ConversationRespon
     return ConversationResponse(
         id=conversation.id,
         title=conversation.title,
+        kind=conversation.kind or "general",
         pinned=conversation.pinned,
         archived=conversation.archived,
         created_at=conversation.created_at,

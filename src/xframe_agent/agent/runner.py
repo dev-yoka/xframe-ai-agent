@@ -24,10 +24,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from xframe_agent.agent.budget import BudgetExceededError, LoopBudget
 from xframe_agent.agent.events import append_run_event
+from xframe_agent.agent.prompts.create_pricing_request import get_system_prompt
 from xframe_agent.agent.redaction import redact
 from xframe_agent.agent.wrapping import wrap_tool_output
 from xframe_agent.auth.jwt import AuthContext
-from xframe_agent.models import AgentMessage, AgentRun, AgentRunStep, AgentToolCall
+from xframe_agent.models import (
+    AgentConversation,
+    AgentMessage,
+    AgentRun,
+    AgentRunStep,
+    AgentToolCall,
+)
 from xframe_agent.models.agent import utc_now
 from xframe_agent.priceframe import PriceFrameClient
 from xframe_agent.provider.base import (
@@ -88,6 +95,27 @@ class ModelRunner:
         messages = list(history)
         tools = list(tool_registry.available_for(context))
         recent: list[tuple[str, str]] = []
+
+        # Inject system prompt for guided flows or when no history context exists
+        conversation = await session.get(AgentConversation, run.conversation_id)
+        conv_kind = (conversation.kind if conversation else None) or "general"
+        if conv_kind == "create_pricing_request" or not messages:
+            system_msg = ChatMessage(
+                role="system",
+                content=[
+                    ContentBlock(
+                        type="text",
+                        payload={
+                            "text": get_system_prompt(
+                                role_code=context.role_code,
+                                profile_code=context.profile_code,
+                                permissions=context.permissions,
+                            )
+                        },
+                    )
+                ],
+            )
+            messages = [system_msg] + messages
 
         try:
             while True:

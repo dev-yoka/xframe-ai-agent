@@ -133,6 +133,11 @@
       },
       "ConversationCreate": {
         "properties": {
+          "kind": {
+            "default": "general",
+            "title": "Kind",
+            "type": "string"
+          },
           "title": {
             "default": "New conversation",
             "maxLength": 200,
@@ -157,6 +162,11 @@
           },
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "default": "general",
+            "title": "Kind",
             "type": "string"
           },
           "messages": {
@@ -200,6 +210,22 @@
             },
             "title": "Conversations",
             "type": "array"
+          },
+          "has_more": {
+            "default": false,
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
           }
         },
         "required": [
@@ -221,6 +247,11 @@
           },
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "default": "general",
+            "title": "Kind",
             "type": "string"
           },
           "pinned": {
@@ -1154,6 +1185,36 @@
     "/api/v1/agent/conversations": {
       "get": {
         "operationId": "list_conversations_api_v1_agent_conversations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1164,6 +1225,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "List Conversations",

@@ -37,6 +37,7 @@ class AgentConversation(Base):
     id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
     user_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False, default="New conversation")
+    kind: Mapped[str] = mapped_column(String(64), nullable=True, default="general")
     pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
