@@ -88,22 +88,36 @@ flowchart TB
 | `models/agent.py` | SQLAlchemy | All ORM tables |
 | `worker.py` | `arq`, `AgentLoop` | background job runner |
 
-## 3.3 Two runners coexist (important architectural note)
+## 3.3 Two runners with explicit dispatch
 
-There are **two orchestration paths** in the codebase:
+There are **two orchestration paths**, selected at runtime by `agent.dispatch.execute_run`:
 
 | | `AgentLoop` (`agent/loop.py`) | `ModelRunner` (`agent/runner.py`) |
 |---|---|---|
 | Reasoning | **Deterministic** — regex `tool:{...}` directives | **LLM-driven** — provider streams tool_use blocks |
-| Used by | `POST /conversations/{id}/messages` (`conversations.py:166`)<br/>`POST /conversations/{id}/runs` (`conversations.py:214`)<br/>`worker.run_agent_job` | Has all LLM logic but is **not yet wired into the HTTP layer** as of v1 |
 | Provider required | No | Yes (Vertex or Anthropic) |
 | Tool execution | Defers to `POST /runs/{id}/decisions` | Inline (reads parallel, writes serial) |
 | System prompt injection | No | Yes — for `kind="create_pricing_request"` or empty history |
-| Tested by | `test_agent_api.py`, `test_phase_e_api.py` | `test_runner.py`, `test_create_pricing_request_flow.py` |
+| Tested by | `test_agent_api.py`, `test_phase_e_api.py` | `test_runner.py`, `test_create_pricing_request_flow.py`, `test_dispatch.py` |
 
-**Why two?** `AgentLoop` was the Phase D/E deterministic demo path so the system could be E2E-tested without a real LLM. `ModelRunner` is the production path. The migration to ModelRunner being called from the HTTP layer is **engineering backlog** — see [§15 Improvements](./15-improvements.md) §15.1.
+**Dispatch logic** (`agent/dispatch.py:execute_run`):
 
-For day-to-day product usage (the v1 pricing-request demo against deployed PriceFRAME), the LLM-driven flow runs by directly invoking `ModelRunner.run()` from worker code or future endpoints. The HTTP entry today still goes through `AgentLoop`. The mismatch is a documented gap; you'll see it again in §10 (debugging) and §15.
+```python
+if settings.provider_configured:
+    # LLM-driven path
+    router = build_router(settings)
+    history = await load_history(session, conversation_id=run.conversation_id)
+    async with PriceFrameClient.from_settings(settings) as priceframe:
+        runner = ModelRunner(router=router, settings=settings,
+                             model=settings.default_model,
+                             priceframe_factory=priceframe)
+        return await runner.run(session, run=run, context=context, history=history)
+else:
+    # Deterministic fallback
+    return await AgentLoop(settings).run(session, run_id=run_id, context=context)
+```
+
+**Why both?** `AgentLoop` lets the system run E2E in tests and demos without provider credentials. `ModelRunner` is the production path. The HTTP entry (`POST /messages`, `POST /runs`) and the arq worker both go through `execute_run` — so the deployment chooses by setting (or not setting) `GEMINI_VERTEX_PROJECT` / `ANTHROPIC_API_KEY` in env.
 
 ## 3.4 Data flow — happy-path single tool call
 

@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from xframe_agent.agent.dispatch import execute_run
 from xframe_agent.agent.idempotency import get_replay, store_replay
-from xframe_agent.agent.loop import AgentLoop
 from xframe_agent.auth.dependencies import get_auth_context
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.db.session import get_session
@@ -163,7 +163,7 @@ async def send_message(
         return RunCreateResponse.model_validate(replay.response_payload)
 
     run = await create_run_record(session, auth, conversation_id, payload.content, payload.source)
-    await AgentLoop().run(session, run_id=run.id, context=auth)
+    await execute_run(session, settings=settings, run_id=run.id, context=auth)
     result = RunCreateResponse(run_id=run.id, status="completed")
     await store_replay(
         session,
@@ -211,7 +211,7 @@ async def start_run(
     await session.commit()
 
     if settings.run_execution_mode == "inline":
-        await AgentLoop().run(session, run_id=run.id, context=auth)
+        await execute_run(session, settings=settings, run_id=run.id, context=auth)
     else:
         await enqueue_agent_run(settings, run_id=run.id, auth_context=auth)
     return result

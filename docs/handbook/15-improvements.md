@@ -7,35 +7,19 @@
 - 🔴 **High** — blocks scale, correctness, or significant capability
 - 🟡 **Medium** — clear value, no urgency
 - 🟢 **Low** — quality of life, future-proofing
+- ✅ **Done** — completed in a later iteration; kept here for traceability
 
 ---
 
-## 15.1 🔴 Wire `ModelRunner` into the HTTP path
+## 15.1 ✅ Wire `ModelRunner` into the HTTP path — DONE
 
-**What:** today `POST /messages` and `POST /runs` call `AgentLoop` (`conversations.py:166, 214`); `ModelRunner` is fully implemented but unused from HTTP. The arq worker also calls `AgentLoop`.
+**Status:** Shipped.
 
-**Why:** all the LLM-driven logic (system prompt injection, streaming, parallel reads, loop detection, budget enforcement, provider failover) lives in `ModelRunner` and is *not* exercised from production HTTP entry. The v1 user-facing flow falls back to deterministic regex parsing.
+**What was done:** Added `agent/dispatch.py:execute_run` that picks `ModelRunner` (when `settings.provider_configured`) or `AgentLoop` (deterministic fallback). `POST /messages`, `POST /runs`, and `worker.run_agent_job` now all route through `execute_run`. Also added `agent/history.py:load_history` to assemble `ChatMessage` history from `agent_messages`, and `provider/factory.py:build_router` to construct a `ProviderFailoverRouter` from configured providers in order (Vertex → Anthropic).
 
-**Effort:** ~1 day.
+**Files:** `agent/dispatch.py` (new), `agent/history.py` (new), `provider/factory.py` (new), `api/v1/conversations.py`, `worker.py`, `settings.py` (`default_model` field added), `tests/test_dispatch.py` (new).
 
-**Impact:** unlocks the actual LLM behavior the rest of the system was built for.
-
-**Sketch:**
-
-```python
-# conversations.py / runs.py
-if settings.provider_configured:
-    router = ProviderFailoverRouter(providers=_build_providers(settings))
-    runner = ModelRunner(router=router, settings=settings, model=settings.default_model,
-                         priceframe_factory=PriceFrameClient.from_settings(settings))
-    await runner.run(session, run=run, context=auth, history=_load_history(session, conversation_id))
-else:
-    await AgentLoop().run(session, run_id=run.id, context=auth)
-```
-
-Same change in `worker.run_agent_job`.
-
-Tests to add: `tests/test_model_runner_http_integration.py` that asserts the LLM-driven path runs end-to-end.
+**Known limitation:** the router currently passes one `default_model` string to whichever provider it selects. If Anthropic falls over from Gemini, it would receive `"gemini-2.5-flash"` and fail. Either pick one provider OR add per-provider model overrides (next iteration).
 
 ---
 
@@ -80,56 +64,25 @@ Run as a pre-step in `ModelRunner.run()`.
 
 ---
 
-## 15.4 🟡 Feed tool errors back to the model
+## 15.4 ✅ Feed tool errors back to the model — DONE
 
-**What:** when `tool.input_model.model_validate` fails or PriceFRAME returns 4xx, the runner emits `v1.tool.error` but the model **never sees the error**. Currently the proposal is silently dropped.
+**Status:** Shipped.
 
-**Why:** the model can't self-correct because it doesn't know the call failed. Result: the model assumes success and proceeds with wrong assumptions.
+**What was done:** `ModelRunner._dispatch_proposals` now appends a synthetic `ToolExecutionResult` carrying `{"error": {"cause": ..., "detail": ...}}` whenever:
+- `tool_registry.get(name)` returns None (`cause=unknown_tool`)
+- `tool.input_model.model_validate(args)` fails (`cause=schema_validation_failed`)
+- `tool.execute` raises `PriceFrameError` (`cause=priceframe_error`)
+- `tool.execute` raises `ValueError` from local validation (`cause=tool_validation_error`)
 
-**Effort:** ~half day.
+These are wrapped via `wrap_tool_output` like real results and appended to the model's message history. The model sees the failure on the next iteration and can correct or apologize. The `v1.tool.error` durable event is still emitted in parallel.
 
-**Impact:** significantly better recovery behavior; fewer wedged runs.
-
-**Sketch:**
-
-```python
-# In _dispatch_proposals after schema_validation_failed
-messages.append(ChatMessage(
-    role="tool",
-    content=[ContentBlock(type="tool_result", payload={
-        "tool_call_id": proposal.call_id,
-        "wrapped": wrap_tool_output(
-            tool_name=proposal.name,
-            call_id=proposal.call_id,
-            payload={"error": "schema_validation_failed", "detail": str(exc)},
-        ),
-    })],
-))
-```
-
-Then continue the loop; the model gets a chance to fix args.
+**Files:** `agent/runner.py` (added `_build_error_result`, `_record_tool_failure`), `tests/test_runner.py` (new test `test_runner_feeds_unknown_tool_error_back_to_model`).
 
 ---
 
-## 15.5 🟡 Use `requires_approval()` for tool record approval (HITL bug fix)
+## 15.5 ✅ Use `requires_approval()` for tool record approval — Already Done
 
-**What:** in `AgentLoop`, every tool call is currently created with `requires_approval=True` regardless of the tool's actual policy.
-
-**Why:** `recalculate_quote_aggregates` overrides `requires_approval -> False` but the loop hardcodes True, so users have to approve recalcs unnecessarily.
-
-**Effort:** ~2 hours.
-
-**Impact:** UX improvement; consistency between `AgentLoop` and `ModelRunner`.
-
-**Sketch:**
-
-```python
-# In AgentLoop._build_tool_proposal
-requires_approval = await tool.requires_approval(parsed, ctx)
-tool_call = AgentToolCall(..., requires_approval=requires_approval, status="proposed" if requires_approval else "pending")
-```
-
-Then the decisions endpoint logic still applies for `status=proposed`, but `status=pending` can be auto-executed (with appropriate guarding).
+**Status:** Already correct in code (`agent/loop.py:115`). The deferred-execution behavior in `AgentLoop` (always pausing to `awaiting_decision`) is intentional — the decisions endpoint executes the tool. `ModelRunner` (now wired in §15.1) executes inline when `requires_approval=False`. No code change needed; this was a documentation gap in the original §15 list.
 
 ---
 

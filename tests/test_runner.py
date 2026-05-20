@@ -336,3 +336,59 @@ async def test_runner_surfaces_provider_error(
     async with factory() as session:
         run = await session.get(AgentRun, run_id)
         assert run is not None and run.status == "error"
+
+
+async def test_runner_feeds_unknown_tool_error_back_to_model(
+    db: tuple[Settings, AsyncEngine, Any, str],
+) -> None:
+    """When the model invents a tool name, the harness surfaces the error as
+    a tool_result on the next iteration so the model can self-correct."""
+    settings, _engine, factory, run_id = db
+
+    provider = FakeProvider(
+        [
+            [
+                StreamEvent(
+                    kind="tool_use",
+                    payload={"name": "no_such_tool", "args": {}, "call_id": "c1"},
+                ),
+                StreamEvent(kind="usage", payload={"input_tokens": 10, "output_tokens": 1}),
+            ],
+            [
+                StreamEvent(
+                    kind="text_delta",
+                    payload={"delta": "Sorry, that tool isn't available."},
+                ),
+                StreamEvent(kind="usage", payload={"input_tokens": 15, "output_tokens": 5}),
+            ],
+        ]
+    )
+    router = ProviderFailoverRouter(providers=[provider])
+    runner = ModelRunner(
+        router=router,
+        settings=settings,
+        model="gemini-2.5-flash",
+        priceframe_factory=FakePriceFrame(),  # type: ignore[arg-type]
+    )
+
+    async with factory() as session:
+        run = await session.get(AgentRun, run_id)
+        assert run is not None
+        await runner.run(
+            session,
+            run=run,
+            context=_auth("agent.enabled", "agent.quotes.read"),
+            history=[
+                ChatMessage(
+                    role="user",
+                    content=[ContentBlock(type="text", payload={"text": "do something"})],
+                )
+            ],
+        )
+
+    # The run only completes if the error from the unknown_tool proposal was
+    # fed back as a tool_result and the model produced a follow-up reply.
+    async with factory() as session:
+        run = await session.get(AgentRun, run_id)
+        assert run is not None
+        assert run.status == "completed"
