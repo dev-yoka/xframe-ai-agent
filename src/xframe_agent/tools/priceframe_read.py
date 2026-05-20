@@ -71,6 +71,7 @@ class GetQuotationTool(ToolDefinition[IdInput, JsonOutput]):
     permission = "agent.quotes.read"
     risk = "READ"
     cost_class = "cheap"
+    model_visible_fields = ("data",)
 
     async def _execute(
         self,
