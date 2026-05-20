@@ -155,7 +155,7 @@ async def test_approved_write_decision_executes_tool_and_records_audit(
             tool_name="update_corridor_pricing",
             status="proposed",
             requires_approval=True,
-            args={"corridor_id": 99, "payload": {"appliedFxSpread": "0.0200"}},
+            args={"corridor_id": 99, "fx_spread": "0.0200"},
         )
         session.add(tool_call)
         await session.commit()
@@ -174,7 +174,7 @@ async def test_approved_write_decision_executes_tool_and_records_audit(
             "PUT",
             "/api/quote-corridors/99",
             {
-                "json": {"appliedFxSpread": "0.0200"},
+                "json": {"fxSpread": "0.0200"},
                 "headers": None,
                 "jwt_raw": "jwt-for-tests",
             },

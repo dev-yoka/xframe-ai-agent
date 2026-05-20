@@ -24,6 +24,42 @@ class CorridorScopedPayloadInput(JsonPayloadInput):
     corridor_id: int = Field(gt=0)
 
 
+class CorridorDraft(BaseModel):
+    """A corridor specification for bulk add operations."""
+
+    corridor_id: int = Field(gt=0, description="The corridor ID")
+    volume: Decimal | None = Field(default=None, description="Trade volume (optional)")
+    term_months: int | None = Field(default=None, ge=1, description="Term in months (optional)")
+    applied_rate: Decimal | None = Field(default=None, description="Applied rate (optional)")
+    fx_spread: Decimal | None = Field(default=None, description="FX spread (optional)")
+
+
+class CreateQuotationInput(BaseModel):
+    """Typed input for create_quotation tool."""
+
+    title: str = Field(min_length=1, description="Quotation title")
+    customer_id: int = Field(gt=0, description="Customer ID")
+    currency: str = Field(min_length=3, max_length=3, description="Currency code (e.g., USD)")
+    notes: str | None = Field(default=None, description="Optional notes")
+
+
+class BulkAddCorridorsInput(BaseModel):
+    """Typed input for bulk_add_corridors tool."""
+
+    quote_id: int = Field(gt=0, description="Quote ID")
+    corridors: list[CorridorDraft] = Field(min_length=1, description="Corridors to add")
+
+
+class UpdateCorridorPricingInput(BaseModel):
+    """Typed input for update_corridor_pricing tool."""
+
+    corridor_id: int = Field(gt=0, description="Corridor ID")
+    applied_rate: Decimal | None = Field(default=None, description="Applied rate (optional)")
+    fx_spread: Decimal | None = Field(default=None, description="FX spread (optional)")
+    volume: Decimal | None = Field(default=None, description="Trade volume (optional)")
+    term_months: int | None = Field(default=None, ge=1, description="Term in months (optional)")
+
+
 class FxSpreadInput(BaseModel):
     corridor_id: int = Field(gt=0)
     applied_fx_spread: str
@@ -63,10 +99,10 @@ class PreviewPricingChangeTool(ToolDefinition[QuoteScopedPayloadInput, JsonOutpu
         )
 
 
-class CreateQuotationTool(ToolDefinition[JsonPayloadInput, JsonOutput]):
+class CreateQuotationTool(ToolDefinition[CreateQuotationInput, JsonOutput]):
     name = "create_quotation"
-    description = "Create a draft quotation in PriceFRAME."
-    input_model = JsonPayloadInput
+    description = "Create a draft quotation in PriceFRAME with a title, customer, and currency."
+    input_model = CreateQuotationInput
     output_model = JsonOutput
     permission = "agent.quotes.create"
     risk = "LOW_RISK_WRITE"
@@ -74,23 +110,30 @@ class CreateQuotationTool(ToolDefinition[JsonPayloadInput, JsonOutput]):
 
     async def _execute(
         self,
-        args: JsonPayloadInput,
+        args: CreateQuotationInput,
         ctx: AuthContext,
         priceframe: PriceFrameClient,
     ) -> JsonOutput:
+        payload = {
+            "title": args.title,
+            "customerId": args.customer_id,
+            "currency": args.currency,
+        }
+        if args.notes:
+            payload["notes"] = args.notes
         return JsonOutput(
             data=await priceframe.post_json(
                 "/api/quotes",
                 jwt_raw=ctx.jwt_raw,
-                json=args.payload,
+                json=payload,
             )
         )
 
 
-class BulkAddCorridorsTool(ToolDefinition[QuoteScopedPayloadInput, JsonOutput]):
+class BulkAddCorridorsTool(ToolDefinition[BulkAddCorridorsInput, JsonOutput]):
     name = "bulk_add_corridors"
     description = "Add multiple corridors to a PriceFRAME quotation."
-    input_model = QuoteScopedPayloadInput
+    input_model = BulkAddCorridorsInput
     output_model = JsonOutput
     permission = "agent.quotes.edit"
     risk = "LOW_RISK_WRITE"
@@ -98,11 +141,24 @@ class BulkAddCorridorsTool(ToolDefinition[QuoteScopedPayloadInput, JsonOutput]):
 
     async def _execute(
         self,
-        args: QuoteScopedPayloadInput,
+        args: BulkAddCorridorsInput,
         ctx: AuthContext,
         priceframe: PriceFrameClient,
     ) -> JsonOutput:
-        payload = {"quoteId": args.quote_id, **args.payload}
+        corridors_payload: list[dict[str, Any]] = []
+        for corridor in args.corridors:
+            corridor_dict: dict[str, Any] = {"corridorId": corridor.corridor_id}
+            if corridor.volume is not None:
+                corridor_dict["volume"] = str(corridor.volume)
+            if corridor.term_months is not None:
+                corridor_dict["termMonths"] = corridor.term_months
+            if corridor.applied_rate is not None:
+                corridor_dict["appliedRate"] = str(corridor.applied_rate)
+            if corridor.fx_spread is not None:
+                corridor_dict["fxSpread"] = str(corridor.fx_spread)
+            corridors_payload.append(corridor_dict)
+
+        payload = {"quoteId": args.quote_id, "corridors": corridors_payload}
         return JsonOutput(
             data=await priceframe.post_json(
                 f"/api/quotes/{args.quote_id}/corridors/bulk",
@@ -112,10 +168,10 @@ class BulkAddCorridorsTool(ToolDefinition[QuoteScopedPayloadInput, JsonOutput]):
         )
 
 
-class UpdateCorridorPricingTool(ToolDefinition[CorridorScopedPayloadInput, JsonOutput]):
+class UpdateCorridorPricingTool(ToolDefinition[UpdateCorridorPricingInput, JsonOutput]):
     name = "update_corridor_pricing"
     description = "Update pricing fields on one quote corridor."
-    input_model = CorridorScopedPayloadInput
+    input_model = UpdateCorridorPricingInput
     output_model = JsonOutput
     permission = "agent.quotes.edit"
     risk = "LOW_RISK_WRITE"
@@ -123,15 +179,24 @@ class UpdateCorridorPricingTool(ToolDefinition[CorridorScopedPayloadInput, JsonO
 
     async def _execute(
         self,
-        args: CorridorScopedPayloadInput,
+        args: UpdateCorridorPricingInput,
         ctx: AuthContext,
         priceframe: PriceFrameClient,
     ) -> JsonOutput:
+        payload: dict[str, Any] = {}
+        if args.applied_rate is not None:
+            payload["appliedRate"] = str(args.applied_rate)
+        if args.fx_spread is not None:
+            payload["fxSpread"] = str(args.fx_spread)
+        if args.volume is not None:
+            payload["volume"] = str(args.volume)
+        if args.term_months is not None:
+            payload["termMonths"] = args.term_months
         return JsonOutput(
             data=await priceframe.put_json(
                 f"/api/quote-corridors/{args.corridor_id}",
                 jwt_raw=ctx.jwt_raw,
-                json=args.payload,
+                json=payload,
             )
         )
 

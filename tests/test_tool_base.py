@@ -75,7 +75,9 @@ async def test_recalculate_does_not_require_approval() -> None:
 @pytest.mark.asyncio
 async def test_write_tool_requires_approval() -> None:
     create = CreateQuotationTool()
-    create_args = create.input_model.model_validate({"payload": {}})
+    create_args = create.input_model.model_validate(
+        {"title": "Test Quote", "customer_id": 1, "currency": "USD"}
+    )
     assert await create.requires_approval(create_args, _ctx()) is True
 
     fx = SetFxSpreadTool()
