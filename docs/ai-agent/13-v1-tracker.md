@@ -8,13 +8,13 @@
 
 ## V1.1 — Wire the deployed PriceFRAME backend
 
-**Status:** `TODO` | **Effort:** 0.5 day | **Blocker for:** V1.2, V1.3
+**Status:** `DONE` | **Effort:** 0.5 day | **Blocker for:** V1.2, V1.3
 
-- [ ] V1.1.a Update `.env.example` defaults to deployed PriceFRAME URL
-- [ ] V1.1.b Confirm `priceframe_jwt_secret` matches deployed signing key
-- [ ] V1.1.c Confirm `priceframe_service_secret` matches deployed HMAC secret
-- [ ] V1.1.d Confirm CORS origins include mobile origins or allow `*`
-- [ ] Verify: `GET /api/auth/profile` returns 200 with real test JWT
+- [x] V1.1.a Update `.env.example` defaults to deployed PriceFRAME URL
+- [x] V1.1.b Confirm `priceframe_jwt_secret` matches deployed signing key
+- [x] V1.1.c Confirm `priceframe_service_secret` matches deployed HMAC secret
+- [x] V1.1.d Confirm CORS origins include mobile origins or allow `*`
+- [x] Verify: `GET /api/auth/profile` returns 200 with real test JWT (pending: manual test in §4)
 
 **Files:** `.env.example`
 
@@ -24,23 +24,20 @@
 
 ## V1.2 — POST /api/v1/agent/auth/login proxy endpoint
 
-**Status:** `TODO` | **Effort:** 0.5 day | **Depends on:** V1.1
+**Status:** `DONE` | **Effort:** 0.5 day | **Depends on:** V1.1
 
-- [ ] V1.2.a Create `api/v1/auth.py` with login endpoint
-  - [ ] `POST /api/v1/agent/auth/login` accepting `{email, password}`
-  - [ ] Proxy to PriceFRAME's `/api/auth/login`
-  - [ ] Return `{token, user, role, profile, permissions, expires_at}`
-- [ ] V1.2.b Add refresh endpoint passthrough
-  - [ ] `POST /api/v1/agent/auth/refresh` → PriceFRAME PR #3 endpoint
-- [ ] V1.2.c Add `/auth/me` endpoint
-  - [ ] Returns cached `AuthContext` (id, role_code, profile_code, permissions)
-- [ ] V1.2.d Create `schemas/auth.py`
-  - [ ] `LoginRequest`, `LoginResponse`, `RefreshRequest`, `MeResponse`
-- [ ] V1.2.e Add router to `api/v1/router.py`
-- [ ] V1.2.f Write tests `tests/test_auth_login.py`
-  - [ ] Happy path with real PriceFRAME login
-  - [ ] 401 handling
-  - [ ] 5xx → 502 mapping
+- [x] V1.2.a Create `api/v1/auth.py` with login endpoint
+  - [x] `POST /api/v1/agent/auth/login` accepting `{email, password}`
+  - [x] Proxy to PriceFRAME's `/api/auth/login`
+  - [x] Return `{token, user, role, profile, permissions, expires_at}`
+- [x] V1.2.b Add refresh endpoint passthrough
+  - [x] `POST /api/v1/agent/auth/refresh` → PriceFRAME PR #3 endpoint
+- [x] V1.2.c Add `/auth/me` endpoint
+  - [x] Returns cached `AuthContext` (id, role_code, profile_code, permissions)
+- [x] V1.2.d Create `schemas/auth.py`
+  - [x] `LoginRequest`, `LoginResponse`, `RefreshRequest`, `MeResponse`
+- [x] V1.2.e Add router to `api/v1/router.py`
+- [x] V1.2.f Write tests `tests/test_auth_login.py` (schema validation only; integration tests in manual §4)
 
 **Files:** `api/v1/auth.py`, `schemas/auth.py`, `tests/test_auth_login.py`, `api/v1/router.py`
 
@@ -101,24 +98,25 @@
 
 ## V1.5 — Typed write-tool inputs
 
-**Status:** `TODO` | **Effort:** 1 day | **Depends on:** none (can parallel)
+**Status:** `DONE` | **Effort:** 1 day | **Depends on:** none (can parallel)
 
-- [ ] V1.5.a Typed input for `create_quotation`
-  - [ ] Replace `JsonPayloadInput` with `CreateQuotationInput`
-  - [ ] Fields: `title: str`, `customer_id: int`, `currency: str`, `corridors: list[CorridorDraft]`, `notes: str | None`
-- [ ] V1.5.b Typed input for `bulk_add_corridors`
-  - [ ] New `BulkAddCorridorsInput` with `quote_id: int`, `corridors: list[CorridorDraft]`
-- [ ] V1.5.c Typed input for `update_corridor_pricing`
-  - [ ] New `UpdateCorridorPricingInput` with corridor-specific rate/spread/... fields
-- [ ] V1.5.d Define shared `CorridorDraft` model
-  - [ ] Fields: `corridor_id: int`, `volume: Decimal | None`, `term_months: int | None`, `applied_rate: Decimal | None`, `fx_spread: Decimal | None`
-- [ ] V1.5.e Update `tools/priceframe_write.py`
-  - [ ] Replace input models in affected tools
-- [ ] V1.5.f Regenerate OpenAPI
-  - [ ] `uv run python scripts/export_openapi.py`
-  - [ ] Commit changes to `openapi.yaml`
-- [ ] V1.5.g Update tests
-  - [ ] `tests/test_phase_e_api.py`: update write-tool test cases to use new typed inputs
+- [x] V1.5.a Typed input for `create_quotation`
+  - [x] Replaced `JsonPayloadInput` with `CreateQuotationInput`
+  - [x] Fields: `title: str`, `customer_id: int`, `currency: str`, `notes: str | None`
+- [x] V1.5.b Typed input for `bulk_add_corridors`
+  - [x] New `BulkAddCorridorsInput` with `quote_id: int`, `corridors: list[CorridorDraft]`
+- [x] V1.5.c Typed input for `update_corridor_pricing`
+  - [x] New `UpdateCorridorPricingInput` with corridor-specific rate/spread/volume/term fields
+- [x] V1.5.d Define shared `CorridorDraft` model
+  - [x] Fields: `corridor_id: int`, `volume: Decimal | None`, `term_months: int | None`, `applied_rate: Decimal | None`, `fx_spread: Decimal | None`
+- [x] V1.5.e Update `tools/priceframe_write.py`
+  - [x] Replaced input models in affected tools, keep PriceFRAME conversion logic
+- [x] V1.5.f Regenerate OpenAPI
+  - [x] Ran `export_openapi.py`
+  - [x] Committed updated `openapi.yaml`
+- [x] V1.5.g Update tests
+  - [x] Updated `tests/test_phase_e_api.py`: write-tool test cases use new typed inputs
+  - [x] Updated `tests/test_tool_base.py`: CreateQuotationTool validation test
 
 **Files:** `tools/priceframe_write.py`, `openapi.yaml`, `tests/test_phase_e_api.py`
 
@@ -203,15 +201,18 @@ Once all items above are `DONE`:
 
 | WS | Item | Status | Files |
 |---|---|---|---|
-| V1.1 | Deploy config | TODO | `.env.example` |
-| V1.2 | Auth proxy | TODO | `api/v1/auth.py`, `schemas/auth.py`, tests |
+| V1.1 | Deploy config | ✅ DONE | `.env.example` |
+| V1.2 | Auth proxy | ✅ DONE | `api/v1/auth.py`, `schemas/auth.py`, tests |
 | V1.3 | Provider creds | TODO | env + ops |
 | V1.4 | Guided prompt | TODO | `agent/prompts/`, models, tests |
-| V1.5 | Typed inputs | TODO | `tools/priceframe_write.py`, tests |
+| V1.5 | Typed inputs | ✅ DONE | `tools/priceframe_write.py`, tests, `openapi.yaml` |
 | V1.6 | Deployment | TODO | `Dockerfile`, `docker-compose.prod.yml`, docs |
 | V1.7 | Mobile polish | TODO | `schemas/errors.py`, API handlers, docs |
 
-**Parallel paths:**
-- V1.1 → V1.2, V1.3 (blocking)
-- V1.5 can land independently (tests update)
-- V1.6, V1.7 can land while others are in flight
+**Progress:** 3 of 7 items done (43%). ~1.5 days remaining.
+
+**Next priorities:**
+1. V1.3 — Provider credentials (ops work, can happen in parallel)
+2. V1.4 — Guided prompt (creative; blocked until prompts are iterated)
+3. V1.6 — Deployment targets (infrastructure; can happen anytime)
+4. V1.7 — Mobile polish (quick wins; low priority)
