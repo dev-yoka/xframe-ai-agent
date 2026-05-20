@@ -5,7 +5,17 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
@@ -120,6 +130,9 @@ class AgentToolCall(Base):
     result: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     requires_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    priceframe_audit_log_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rejected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -194,3 +207,89 @@ class AgentAuditLog(Base):
     action: Mapped[str] = mapped_column(String(128), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AgentAttachment(Base):
+    """User-owned attachment metadata with S3-compatible blob storage."""
+
+    __tablename__ = "agent_attachments"
+    __table_args__ = (Index("idx_agent_attachments_user_created", "user_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
+    user_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    conversation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("agent_conversations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    message_id: Mapped[str | None] = mapped_column(String(26), nullable=True, index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(255), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    checksum_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    storage_bucket: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_key: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending_scan")
+    scan_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    scan_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extra_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata",
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    pages: Mapped[list[AgentAttachmentPage]] = relationship(
+        back_populates="attachment",
+        cascade="all, delete-orphan",
+        order_by="AgentAttachmentPage.page_number",
+    )
+
+
+class AgentAttachmentPage(Base):
+    """Extracted text or image metadata for one attachment page."""
+
+    __tablename__ = "agent_attachment_pages"
+    __table_args__ = (
+        UniqueConstraint("attachment_id", "page_number", name="uq_agent_attachment_pages_page"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    attachment_id: Mapped[str] = mapped_column(
+        ForeignKey("agent_attachments.id", ondelete="CASCADE"),
+        index=True,
+    )
+    page_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    extra_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata",
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    attachment: Mapped[AgentAttachment] = relationship(back_populates="pages")
+
+
+class AgentUserMemory(Base):
+    """User-visible memory item retained by the agent service."""
+
+    __tablename__ = "agent_user_memory"
+    __table_args__ = (Index("idx_agent_user_memory_user_created", "user_id", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True, default=new_id)
+    user_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    key: Mapped[str] = mapped_column(String(128), nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="summarizer")
+    extra_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata",
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)

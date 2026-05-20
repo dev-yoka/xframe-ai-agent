@@ -1,6 +1,8 @@
 """Agent ORM model imports for SQLAlchemy metadata."""
 
 from xframe_agent.models.agent import (
+    AgentAttachment,
+    AgentAttachmentPage,
     AgentAuditLog,
     AgentConversation,
     AgentDeviceToken,
@@ -11,10 +13,13 @@ from xframe_agent.models.agent import (
     AgentRunStep,
     AgentToolCall,
     AgentUserCache,
+    AgentUserMemory,
 )
 
 __all__ = [
     "AgentAuditLog",
+    "AgentAttachment",
+    "AgentAttachmentPage",
     "AgentConversation",
     "AgentDeviceToken",
     "AgentIdempotencyKey",
@@ -24,4 +29,5 @@ __all__ = [
     "AgentRunStep",
     "AgentToolCall",
     "AgentUserCache",
+    "AgentUserMemory",
 ]

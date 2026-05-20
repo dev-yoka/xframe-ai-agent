@@ -30,6 +30,12 @@ REGISTERED_TOOLS: tuple[ToolDefinition[Any, Any], ...] = (
     GetCurrencyRateTool(),
     LookupSalesforcePrTool(),
     RecalculateQuoteAggregatesTool(),
+    PreviewPricingChangeTool(),
+    CreateQuotationTool(),
+    BulkAddCorridorsTool(),
+    UpdateCorridorPricingTool(),
+    SetFxSpreadTool(),
+    SubmitForApprovalTool(),
 )
 
 SCAFFOLDED_TOOLS: tuple[type[ToolDefinition[Any, Any]], ...] = (

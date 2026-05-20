@@ -2,21 +2,25 @@
 
 Python 3.12 + FastAPI service for the Sales Representative agent workflow. PriceFRAME remains the system of record; this service calls PriceFRAME's REST API with the end user's JWT so PriceFRAME RBAC is still authoritative.
 
-## What Is In Phase D
+## What Is In Phase E
 
 - FastAPI app factory mounted under `/api/v1/agent`.
 - PriceFRAME JWT verification with `/api/auth/profile` introspection and a 60 second session cache.
-- Typed `PriceFrameClient` with JWT pass-through, retries, structured errors, and generic GET/POST helpers for tools.
+- Typed `PriceFrameClient` with JWT pass-through, retries, structured errors, generic GET/POST/PUT helpers, and HMAC-signed audit callbacks to PriceFRAME.
 - Health endpoint covering provider configuration, queue, database, Redis, and PriceFRAME upstream.
 - Structlog setup with secret redaction, request ID middleware, optional Redis sliding-window rate limit middleware, and Prometheus wiring.
 - Alembic, SQLAlchemy async session plumbing, Dockerfile, docker compose dev stack, CI, OpenAPI snapshot export, and tests.
 - Agent persistence tables for conversations, messages, runs, run events, tool calls, idempotency keys, user cache, device tokens, and audit log.
 - Conversation/run REST API, SSE replay with `Last-Event-ID`, cancellation, and decision endpoints.
-- Pydantic-native tool registry with permission-filtered discovery; Phase D registers the read path plus `recalculate_quote_aggregates`.
+- Pydantic-native tool registry with permission-filtered discovery. Registered tools cover the Phase D read path, pricing previews, quote creation, corridor writes, FX spread updates, approval submission, and quote aggregate recalculation.
+- Human approval decisions execute pending write tool calls, send idempotency keys to PriceFRAME, create local `agent_audit_log` rows, and call `POST /api/v1/agent-audit-callbacks`.
+- Attachments API stores blobs in S3-compatible storage, tracks ClamAV scan status, and can scan inline or through arq.
+- Memory API exposes user-visible memory rows, with the deterministic loop writing a small summarizer memory when the user says "remember that ...".
+- Voice transcription endpoint uses Groq Whisper Large v3 Turbo when `GROQ_API_KEY` is configured.
 - Provider protocol and failover router shells for Gemini Vertex, Gemini AI Studio, and Anthropic. AI Studio fails closed when `ALLOW_REAL_DATA=true`.
 - arq worker entry point for durable run execution and a synthetic eval harness with five golden traces.
 
-Phase D deliberately keeps write tools scaffolded but unregistered until Phase E confirmation/audit work. `preview_pricing_change` is also scaffolded but skipped until PriceFRAME delta-PR #2 exists.
+Provider adapters still remain shells; the current loop is deterministic until the model-orchestrated loop is expanded against live provider credentials.
 
 ## Stack
 
@@ -27,6 +31,8 @@ Phase D deliberately keeps write tools scaffolded but unregistered until Phase E
 - structlog, Langfuse, Prometheus
 - httpx for PriceFRAME calls
 - PyJWT for PriceFRAME HS256 token verification
+- boto3 for MinIO/S3-compatible attachment storage
+- python-multipart for upload endpoints
 
 ## Local Setup
 
@@ -34,6 +40,7 @@ Phase D deliberately keeps write tools scaffolded but unregistered until Phase E
 uv sync --extra dev
 cp .env.example .env
 docker compose up -d postgres redis langfuse-db langfuse minio
+uv run alembic upgrade head
 uv run uvicorn xframe_agent.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -57,6 +64,15 @@ uv run arq xframe_agent.worker.WorkerSettings
 
 Local tests use `RUN_EXECUTION_MODE=inline` so runs complete inside the request.
 
+For asynchronous attachment scanning set:
+
+```bash
+ATTACHMENT_SCAN_MODE=arq
+CLAMAV_ENABLED=true
+docker compose up -d clamav redis
+uv run arq xframe_agent.worker.WorkerSettings
+```
+
 ## Verification
 
 ```bash
@@ -76,6 +92,7 @@ git diff --exit-code openapi.yaml
 - `redis`: Redis for arq, rate limits, and future SSE buffers.
 - `langfuse-db` + `langfuse`: self-hosted Langfuse for local traces.
 - `minio`: S3-compatible object storage for later attachment work.
+- `clamav`: optional malware scanner for attachment scan jobs.
 
 ## Module Map
 
@@ -85,6 +102,7 @@ git diff --exit-code openapi.yaml
 - `src/xframe_agent/auth/`: JWT verification and PriceFRAME profile introspection.
 - `src/xframe_agent/priceframe/`: PriceFRAME REST client.
 - `src/xframe_agent/agent/`: run loop, durable events, idempotency helpers.
+- `src/xframe_agent/attachments/`: blob storage and ClamAV scan helpers.
 - `src/xframe_agent/tools/`: Pydantic-native tool definitions and registry.
 - `src/xframe_agent/provider/`: provider protocol and adapter shells.
 - `src/xframe_agent/api/v1/`: versioned HTTP routers.

@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
+import json
+import time
 from collections.abc import Mapping
+from hashlib import sha256
 from typing import Any, Self, cast
 
 import httpx
@@ -29,6 +33,7 @@ class PriceFrameClient:
         timeout_seconds: float,
         max_retries: int,
         client: httpx.AsyncClient | None = None,
+        default_headers: Mapping[str, str] | None = None,
     ) -> None:
         self._owns_client = client is None
         self._client = client or httpx.AsyncClient(
@@ -37,13 +42,20 @@ class PriceFrameClient:
             headers={"Accept": "application/json"},
         )
         self._max_retries = max_retries
+        self._default_headers = dict(default_headers or {})
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> PriceFrameClient:
+    def from_settings(
+        cls,
+        settings: Settings,
+        *,
+        default_headers: Mapping[str, str] | None = None,
+    ) -> PriceFrameClient:
         return cls(
             base_url=settings.priceframe_base_url,
             timeout_seconds=settings.priceframe_timeout_seconds,
             max_retries=settings.priceframe_max_retries,
+            default_headers=default_headers,
         )
 
     async def __aenter__(self) -> Self:
@@ -91,7 +103,7 @@ class PriceFrameClient:
     ) -> Any:
         """POST a JSON payload to PriceFRAME with JWT pass-through."""
 
-        request_headers = {"Authorization": f"Bearer {jwt_raw}"}
+        request_headers = {**self._default_headers, "Authorization": f"Bearer {jwt_raw}"}
         if headers:
             request_headers.update(headers)
         response = await self._request(
@@ -102,6 +114,58 @@ class PriceFrameClient:
         )
         payload = response.json()
         return payload
+
+    async def put_json(
+        self,
+        path: str,
+        *,
+        jwt_raw: str,
+        json: Mapping[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> Any:
+        """PUT a JSON payload to PriceFRAME with JWT pass-through."""
+
+        request_headers = {**self._default_headers, "Authorization": f"Bearer {jwt_raw}"}
+        if headers:
+            request_headers.update(headers)
+        response = await self._request(
+            "PUT",
+            path,
+            headers=request_headers,
+            json=json,
+        )
+        return response.json()
+
+    async def post_agent_audit_callback(
+        self,
+        *,
+        jwt_raw: str,
+        service_secret: str,
+        payload: Mapping[str, Any],
+    ) -> int:
+        """Post an HMAC-signed write audit callback to PriceFRAME."""
+
+        timestamp = str(int(time.time() * 1000))
+        signature_payload = json.dumps(dict(payload), separators=(",", ":"))
+        signature = hmac.new(
+            service_secret.encode("utf-8"),
+            f"{timestamp}.{signature_payload}".encode(),
+            sha256,
+        ).hexdigest()
+        response = await self.post_json(
+            "/api/v1/agent-audit-callbacks",
+            jwt_raw=jwt_raw,
+            json=payload,
+            headers={
+                "X-Agent-Timestamp": timestamp,
+                "X-Agent-Service-Signature": signature,
+            },
+        )
+        if isinstance(response, Mapping):
+            audit_log_id = response.get("audit_log_id")
+            if isinstance(audit_log_id, int):
+                return audit_log_id
+        raise PriceFrameResponseError("PriceFRAME audit callback response missing audit_log_id")
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         last_error: PriceFrameError | None = None

@@ -1,6 +1,106 @@
 {
   "components": {
     "schemas": {
+      "AttachmentResponse": {
+        "properties": {
+          "checksum_sha256": {
+            "title": "Checksum Sha256",
+            "type": "string"
+          },
+          "content_type": {
+            "title": "Content Type",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "download_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Url"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "scan_status": {
+            "title": "Scan Status",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "content_type",
+          "size_bytes",
+          "checksum_sha256",
+          "status",
+          "scan_status",
+          "download_url",
+          "created_at"
+        ],
+        "title": "AttachmentResponse",
+        "type": "object"
+      },
+      "Body_transcribe_voice_api_v1_agent_voice_transcriptions_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_transcribe_voice_api_v1_agent_voice_transcriptions_post",
+        "type": "object"
+      },
+      "Body_upload_attachment_api_v1_agent_attachments_post": {
+        "properties": {
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_attachment_api_v1_agent_attachments_post",
+        "type": "object"
+      },
       "ComponentHealth": {
         "description": "Health state for one dependency.",
         "properties": {
@@ -258,6 +358,62 @@
           }
         },
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "MemoryListResponse": {
+        "properties": {
+          "memories": {
+            "items": {
+              "$ref": "#/components/schemas/MemoryResponse"
+            },
+            "title": "Memories",
+            "type": "array"
+          }
+        },
+        "required": [
+          "memories"
+        ],
+        "title": "MemoryListResponse",
+        "type": "object"
+      },
+      "MemoryResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "value",
+          "source",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MemoryResponse",
         "type": "object"
       },
       "MessageCreate": {
@@ -575,6 +731,24 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "VoiceTranscriptionResponse": {
+        "properties": {
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "model"
+        ],
+        "title": "VoiceTranscriptionResponse",
+        "type": "object"
       }
     }
   },
@@ -585,6 +759,89 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/agent/attachments": {
+      "post": {
+        "operationId": "upload_attachment_api_v1_agent_attachments_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_attachment_api_v1_agent_attachments_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Attachment",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
+    "/api/v1/agent/attachments/{attachment_id}": {
+      "get": {
+        "operationId": "get_attachment_api_v1_agent_attachments__attachment_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attachment_id",
+            "required": true,
+            "schema": {
+              "title": "Attachment Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttachmentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Attachment",
+        "tags": [
+          "attachments"
+        ]
+      }
+    },
     "/api/v1/agent/conversations": {
       "get": {
         "operationId": "list_conversations_api_v1_agent_conversations_get",
@@ -946,6 +1203,62 @@
         ]
       }
     },
+    "/api/v1/agent/memory": {
+      "get": {
+        "operationId": "list_memory_api_v1_agent_memory_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemoryListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Memory",
+        "tags": [
+          "memory"
+        ]
+      }
+    },
+    "/api/v1/agent/memory/{memory_id}": {
+      "delete": {
+        "operationId": "delete_memory_api_v1_agent_memory__memory_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memory_id",
+            "required": true,
+            "schema": {
+              "title": "Memory Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Memory",
+        "tags": [
+          "memory"
+        ]
+      }
+    },
     "/api/v1/agent/runs/{run_id}": {
       "get": {
         "operationId": "get_run_api_v1_agent_runs__run_id__get",
@@ -1159,6 +1472,47 @@
         "summary": "List Tools",
         "tags": [
           "tools"
+        ]
+      }
+    },
+    "/api/v1/agent/voice/transcriptions": {
+      "post": {
+        "operationId": "transcribe_voice_api_v1_agent_voice_transcriptions_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_transcribe_voice_api_v1_agent_voice_transcriptions_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceTranscriptionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Transcribe Voice",
+        "tags": [
+          "voice"
         ]
       }
     }

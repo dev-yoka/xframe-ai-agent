@@ -1,7 +1,8 @@
-"""Scaffolded write tools for Phase E registration."""
+"""PriceFRAME write tools registered in Phase E."""
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -71,6 +72,20 @@ class CreateQuotationTool(ToolDefinition[JsonPayloadInput, JsonOutput]):
     risk = "LOW_RISK_WRITE"
     cost_class = "medium"
 
+    async def _execute(
+        self,
+        args: JsonPayloadInput,
+        ctx: AuthContext,
+        priceframe: PriceFrameClient,
+    ) -> JsonOutput:
+        return JsonOutput(
+            data=await priceframe.post_json(
+                "/api/quotes",
+                jwt_raw=ctx.jwt_raw,
+                json=args.payload,
+            )
+        )
+
 
 class BulkAddCorridorsTool(ToolDefinition[QuoteScopedPayloadInput, JsonOutput]):
     name = "bulk_add_corridors"
@@ -80,6 +95,21 @@ class BulkAddCorridorsTool(ToolDefinition[QuoteScopedPayloadInput, JsonOutput]):
     permission = "agent.quotes.edit"
     risk = "LOW_RISK_WRITE"
     cost_class = "medium"
+
+    async def _execute(
+        self,
+        args: QuoteScopedPayloadInput,
+        ctx: AuthContext,
+        priceframe: PriceFrameClient,
+    ) -> JsonOutput:
+        payload = {"quoteId": args.quote_id, **args.payload}
+        return JsonOutput(
+            data=await priceframe.post_json(
+                f"/api/quotes/{args.quote_id}/corridors/bulk",
+                jwt_raw=ctx.jwt_raw,
+                json=payload,
+            )
+        )
 
 
 class UpdateCorridorPricingTool(ToolDefinition[CorridorScopedPayloadInput, JsonOutput]):
@@ -91,6 +121,20 @@ class UpdateCorridorPricingTool(ToolDefinition[CorridorScopedPayloadInput, JsonO
     risk = "LOW_RISK_WRITE"
     cost_class = "medium"
 
+    async def _execute(
+        self,
+        args: CorridorScopedPayloadInput,
+        ctx: AuthContext,
+        priceframe: PriceFrameClient,
+    ) -> JsonOutput:
+        return JsonOutput(
+            data=await priceframe.put_json(
+                f"/api/quote-corridors/{args.corridor_id}",
+                jwt_raw=ctx.jwt_raw,
+                json=args.payload,
+            )
+        )
+
 
 class SetFxSpreadTool(ToolDefinition[FxSpreadInput, JsonOutput]):
     name = "set_fx_spread"
@@ -101,6 +145,31 @@ class SetFxSpreadTool(ToolDefinition[FxSpreadInput, JsonOutput]):
     risk = "LOW_RISK_WRITE"
     cost_class = "cheap"
 
+    async def _execute(
+        self,
+        args: FxSpreadInput,
+        ctx: AuthContext,
+        priceframe: PriceFrameClient,
+    ) -> JsonOutput:
+        try:
+            applied = Decimal(args.applied_fx_spread)
+            minimum = Decimal(args.minimum_spread)
+        except InvalidOperation as exc:
+            raise ValueError("FX spread values must be decimal strings") from exc
+        if applied < minimum:
+            raise ValueError("Applied FX spread is below the minimum spread")
+
+        return JsonOutput(
+            data=await priceframe.put_json(
+                f"/api/quote-corridors/{args.corridor_id}",
+                jwt_raw=ctx.jwt_raw,
+                json={
+                    "appliedFxSpread": args.applied_fx_spread,
+                    "minimumSpread": args.minimum_spread,
+                },
+            )
+        )
+
 
 class SubmitForApprovalTool(ToolDefinition[ApprovalInput, JsonOutput]):
     name = "submit_for_approval"
@@ -110,3 +179,24 @@ class SubmitForApprovalTool(ToolDefinition[ApprovalInput, JsonOutput]):
     permission = "agent.approvals.submit"
     risk = "HIGH_RISK_WRITE"
     cost_class = "medium"
+
+    async def _execute(
+        self,
+        args: ApprovalInput,
+        ctx: AuthContext,
+        priceframe: PriceFrameClient,
+    ) -> JsonOutput:
+        payload: dict[str, Any] = {
+            "policy": "quote_pricing",
+            "approvers": {"type": "group", "codes": ["pricing_team"]},
+            "reasons": {"source": "agent"},
+        }
+        if args.comment:
+            payload["initiatorComment"] = args.comment
+        return JsonOutput(
+            data=await priceframe.post_json(
+                f"/api/quotes/{args.quote_id}/approvals",
+                jwt_raw=ctx.jwt_raw,
+                json=payload,
+            )
+        )

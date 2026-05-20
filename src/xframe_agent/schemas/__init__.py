@@ -1,12 +1,15 @@
 """Public schema exports."""
 
 from xframe_agent.schemas.agent import (
+    AttachmentResponse,
     ConversationCreate,
     ConversationDetailResponse,
     ConversationListResponse,
     ConversationResponse,
     ConversationUpdate,
     DecisionRequest,
+    MemoryListResponse,
+    MemoryResponse,
     MessageCreate,
     MessageResponse,
     RunCreate,
@@ -14,9 +17,11 @@ from xframe_agent.schemas.agent import (
     RunResponse,
     ToolListResponse,
     ToolSchema,
+    VoiceTranscriptionResponse,
 )
 
 __all__ = [
+    "AttachmentResponse",
     "ConversationCreate",
     "ConversationDetailResponse",
     "ConversationListResponse",
@@ -25,9 +30,12 @@ __all__ = [
     "DecisionRequest",
     "MessageCreate",
     "MessageResponse",
+    "MemoryListResponse",
+    "MemoryResponse",
     "RunCreate",
     "RunCreateResponse",
     "RunResponse",
     "ToolListResponse",
     "ToolSchema",
+    "VoiceTranscriptionResponse",
 ]

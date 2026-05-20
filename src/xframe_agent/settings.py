@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator
@@ -24,6 +25,7 @@ class Settings(BaseSettings):
 
     priceframe_base_url: str = "http://localhost:3333"
     priceframe_jwt_secret: str = Field(default="replace-me", repr=False)
+    priceframe_service_secret: str = Field(default="replace-me", repr=False)
     priceframe_jwt_algorithm: str = "HS256"
     priceframe_profile_cache_ttl_seconds: int = 60
     priceframe_timeout_seconds: float = 10.0
@@ -61,6 +63,15 @@ class Settings(BaseSettings):
     s3_access_key_id: str = Field(default="minioadmin", repr=False)
     s3_secret_access_key: str = Field(default="minioadmin", repr=False)
     s3_bucket: str = "xframe-agent-dev"
+    attachment_storage_backend: Literal["s3", "local"] = "s3"
+    attachment_local_storage_path: Path = Path(".data/attachments")
+    attachment_max_bytes: int = 20 * 1024 * 1024
+    attachment_scan_mode: Literal["inline", "arq"] = "inline"
+    clamav_enabled: bool = False
+    clamav_host: str = "localhost"
+    clamav_port: int = 3310
+    groq_api_key: str | None = Field(default=None, repr=False)
+    groq_whisper_model: str = "whisper-large-v3-turbo"
 
     allow_real_data: bool = False
     gemini_vertex_project: str | None = None

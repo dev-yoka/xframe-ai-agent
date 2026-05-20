@@ -90,3 +90,33 @@ class ToolSchema(BaseModel):
 
 class ToolListResponse(BaseModel):
     tools: list[ToolSchema]
+
+
+class AttachmentResponse(BaseModel):
+    id: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    checksum_sha256: str
+    status: str
+    scan_status: str
+    download_url: str | None
+    created_at: datetime
+
+
+class MemoryResponse(BaseModel):
+    id: str
+    key: str
+    value: str
+    source: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class MemoryListResponse(BaseModel):
+    memories: list[MemoryResponse]
+
+
+class VoiceTranscriptionResponse(BaseModel):
+    text: str
+    model: str

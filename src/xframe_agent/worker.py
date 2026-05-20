@@ -7,8 +7,11 @@ from urllib.parse import urlparse
 from arq.connections import RedisSettings, create_pool
 
 from xframe_agent.agent.loop import AgentLoop
+from xframe_agent.attachments import scan_bytes, storage_from_settings
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.db.session import make_engine, make_session_factory
+from xframe_agent.models import AgentAttachment
+from xframe_agent.models.agent import utc_now
 from xframe_agent.settings import Settings
 
 
@@ -43,6 +46,28 @@ async def run_agent_job(
         await engine.dispose()
 
 
+async def scan_attachment_job(_ctx: dict[str, object], *, attachment_id: str) -> None:
+    """Scan one uploaded attachment and update its durable status."""
+
+    settings = Settings()
+    engine = make_engine(settings)
+    session_factory = make_session_factory(engine)
+    try:
+        async with session_factory() as session:
+            attachment = await session.get(AgentAttachment, attachment_id)
+            if attachment is None:
+                return
+            data = await storage_from_settings(settings).get_bytes(key=attachment.storage_key)
+            result = await scan_bytes(data, settings)
+            attachment.scan_status = result.status
+            attachment.scan_result = result.detail
+            attachment.status = "ready" if result.is_clean else result.status
+            attachment.updated_at = utc_now()
+            await session.commit()
+    finally:
+        await engine.dispose()
+
+
 def redis_settings_from_url(redis_url: str) -> RedisSettings:
     """Convert a redis:// URL into arq settings."""
 
@@ -62,7 +87,7 @@ class WorkerSettings:
     """Settings object consumed by `arq xframe_agent.worker.WorkerSettings`."""
 
     settings = Settings()
-    functions = [run_agent_job]
+    functions = [run_agent_job, scan_attachment_job]
     redis_settings = redis_settings_from_url(settings.redis_url)
     queue_name = settings.arq_queue_name
     max_jobs = 4
@@ -93,5 +118,20 @@ async def enqueue_agent_run(
         )
         if job is None:
             raise RuntimeError(f"Run already queued: {run_id}")
+    finally:
+        await redis.aclose()
+
+
+async def enqueue_attachment_scan(settings: Settings, *, attachment_id: str) -> None:
+    """Enqueue one attachment scan on the configured arq queue."""
+
+    redis = await create_pool(
+        redis_settings_from_url(settings.redis_url),
+        default_queue_name=settings.arq_queue_name,
+    )
+    try:
+        job = await redis.enqueue_job("scan_attachment_job", attachment_id=attachment_id)
+        if job is None:
+            raise RuntimeError(f"Attachment scan already queued: {attachment_id}")
     finally:
         await redis.aclose()
