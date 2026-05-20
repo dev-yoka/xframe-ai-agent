@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import ClassVar, Generic, Literal, TypeVar
+from typing import Any, ClassVar, Generic, Literal, TypeVar
 
 from pydantic import BaseModel
 
@@ -29,6 +29,10 @@ class ToolDefinition(Generic[InputModel, OutputModel]):
     permission: ClassVar[str]
     risk: ClassVar[Risk]
     cost_class: ClassVar[CostClass]
+    # When set, only these top-level keys of the dumped output are forwarded
+    # back to the model. Other keys stay in the durable record but are stripped
+    # before reaching a provider.
+    model_visible_fields: ClassVar[tuple[str, ...] | None] = None
 
     async def requires_approval(self, _args: InputModel, _ctx: AuthContext) -> bool:
         return self.risk != "READ"
@@ -50,6 +54,17 @@ class ToolDefinition(Generic[InputModel, OutputModel]):
         priceframe: PriceFrameClient,
     ) -> OutputModel:
         raise NotImplementedError
+
+    @classmethod
+    def project_for_model(cls, dumped: dict[str, Any]) -> dict[str, Any]:
+        """Project a dumped output dict down to ``model_visible_fields``.
+
+        Returns the dict unchanged when no allow-list is declared.
+        """
+
+        if cls.model_visible_fields is None:
+            return dumped
+        return {key: dumped[key] for key in cls.model_visible_fields if key in dumped}
 
     @classmethod
     def to_provider_schema(cls) -> dict[str, object]:

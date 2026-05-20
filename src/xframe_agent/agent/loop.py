@@ -1,4 +1,14 @@
-"""Single-agent run loop skeleton for Phase D."""
+"""Single-agent run loop.
+
+The loop is still deterministic when no LLM provider is configured. When a
+provider is available the model-orchestrated path (:mod:`agent.runner`) takes
+over. Either way, this module is responsible for:
+
+* writing durable :class:`AgentRunStep` rows alongside the SSE event log,
+* enforcing per-run ceilings via :class:`LoopBudget`,
+* honoring each tool's ``await tool.requires_approval(...)`` policy,
+* applying PII redaction and tool-output wrapping before any provider call.
+"""
 
 from __future__ import annotations
 
@@ -9,16 +19,23 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from xframe_agent.agent.budget import BudgetExceededError, LoopBudget
 from xframe_agent.agent.events import append_run_event
+from xframe_agent.agent.redaction import redact
 from xframe_agent.auth.jwt import AuthContext
-from xframe_agent.models import AgentMessage, AgentRun, AgentToolCall, AgentUserMemory
+from xframe_agent.models import AgentMessage, AgentRun, AgentRunStep, AgentToolCall, AgentUserMemory
 from xframe_agent.models.agent import utc_now
 from xframe_agent.observability.metrics import observe_run_latency, observe_step_count
+from xframe_agent.settings import Settings, get_settings
+from xframe_agent.tools.base import ToolDefinition
 from xframe_agent.tools.registry import tool_registry
 
 
 class AgentLoop:
-    """Small deterministic loop until provider/tool orchestration is expanded."""
+    """Deterministic + provider-driven run loop."""
+
+    def __init__(self, settings: Settings | None = None) -> None:
+        self._settings = settings or get_settings()
 
     async def run(self, session: AsyncSession, *, run_id: str, context: AuthContext) -> AgentRun:
         started = perf_counter()
@@ -32,16 +49,27 @@ class AgentLoop:
         run.started_at = utc_now()
         run.updated_at = utc_now()
         await append_run_event(session, run_id=run.id, event_type="v1.run.started")
+
+        budget = LoopBudget(settings=self._settings)
+        try:
+            budget.begin_step()
+        except BudgetExceededError as exc:
+            await self._finalize_error(session, run=run, budget=budget, exc=exc)
+            await session.commit()
+            return run
+
+        step_record = await self._open_step(session, run_id=run.id, seq=budget.steps, kind="model")
         await append_run_event(
             session,
             run_id=run.id,
             event_type="v1.step.started",
-            payload={"step": 1, "kind": "model"},
+            payload={"step": budget.steps, "kind": "model"},
         )
 
         user_message = await self._input_message(session, run)
-        proposal = self._build_tool_proposal(user_message.content, context)
-        assistant_text = self._deterministic_response(user_message.content, context, proposal)
+        redacted = redact(user_message.content)
+        proposal = self._build_tool_proposal(redacted.text, context)
+        assistant_text = self._deterministic_response(redacted.text, context, proposal)
         assistant_message = AgentMessage(
             conversation_id=run.conversation_id,
             user_id=context.user_id,
@@ -59,31 +87,51 @@ class AgentLoop:
             event_type="v1.message.delta",
             payload={"message_id": assistant_message.id, "delta": assistant_text},
         )
+        await self._close_step(step_record, status="completed")
         await append_run_event(
             session,
             run_id=run.id,
             event_type="v1.step.completed",
-            payload={"step": 1, "kind": "model"},
+            payload={"step": budget.steps, "kind": "model"},
         )
         await self._summarize_memory(
             session,
             run=run,
-            content=user_message.content,
+            content=redacted.text,
             context=context,
         )
 
         if proposal is not None:
+            try:
+                budget.record_tool_call()
+            except BudgetExceededError as exc:
+                await self._finalize_error(session, run=run, budget=budget, exc=exc)
+                await session.commit()
+                return run
+
+            tool = tool_registry.get(proposal["name"])
+            assert tool is not None  # _build_tool_proposal guarantees this
+            parsed_args = tool.input_model.model_validate(proposal["args"])
+            requires_approval = await tool.requires_approval(parsed_args, context)
+
+            tool_call_step = await self._open_step(
+                session,
+                run_id=run.id,
+                seq=budget.steps,
+                kind="tool_call",
+            )
             tool_call = AgentToolCall(
                 run_id=run.id,
                 tool_name=proposal["name"],
-                status="proposed",
+                status="proposed" if requires_approval else "pending",
                 args=proposal["args"],
-                requires_approval=True,
+                requires_approval=requires_approval,
+                step_id=tool_call_step.id,
             )
             session.add(tool_call)
             await session.flush()
             run.output_message_id = assistant_message.id
-            run.status = "awaiting_decision"
+            run.status = "awaiting_decision" if requires_approval else "running"
             run.updated_at = utc_now()
             await append_run_event(
                 session,
@@ -93,16 +141,44 @@ class AgentLoop:
                     "tool_call_id": tool_call.id,
                     "tool_name": tool_call.tool_name,
                     "args": tool_call.args,
+                    "requires_approval": requires_approval,
                 },
             )
+            if requires_approval:
+                await append_run_event(
+                    session,
+                    run_id=run.id,
+                    event_type="v1.run.awaiting_decision",
+                    payload={"tool_call_id": tool_call.id},
+                )
+                await self._close_step(tool_call_step, status="awaiting_decision")
+                observe_step_count(budget.steps)
+                observe_run_latency(
+                    model="deterministic-phase-e",
+                    seconds=perf_counter() - started,
+                )
+                await session.commit()
+                return run
+
+            # Auto-approve path: tool's policy says no human gate needed.
+            # Execution itself still happens through the decisions endpoint or
+            # an arq worker; for the in-loop deterministic path we leave the
+            # tool call in "pending" so the existing decisions endpoint can
+            # finish it (preserving the audit and idempotency story).
+            await self._close_step(tool_call_step, status="pending")
+            run.status = "awaiting_decision"
+            run.updated_at = utc_now()
             await append_run_event(
                 session,
                 run_id=run.id,
                 event_type="v1.run.awaiting_decision",
-                payload={"tool_call_id": tool_call.id},
+                payload={"tool_call_id": tool_call.id, "auto_approved": True},
             )
-            observe_step_count(1)
-            observe_run_latency(model="deterministic-phase-e", seconds=perf_counter() - started)
+            observe_step_count(budget.steps)
+            observe_run_latency(
+                model="deterministic-phase-e",
+                seconds=perf_counter() - started,
+            )
             await session.commit()
             return run
 
@@ -114,9 +190,9 @@ class AgentLoop:
             session,
             run_id=run.id,
             event_type="v1.run.completed",
-            payload={"message_id": assistant_message.id},
+            payload={"message_id": assistant_message.id, "budget": budget.snapshot()},
         )
-        observe_step_count(1)
+        observe_step_count(budget.steps)
         observe_run_latency(model="deterministic-phase-d", seconds=perf_counter() - started)
         await session.commit()
         return run
@@ -188,6 +264,42 @@ class AgentLoop:
             payload={"key": "user_note"},
         )
 
+    async def _open_step(
+        self,
+        session: AsyncSession,
+        *,
+        run_id: str,
+        seq: int,
+        kind: str,
+    ) -> AgentRunStep:
+        step = AgentRunStep(run_id=run_id, seq=seq, kind=kind, status="running")
+        session.add(step)
+        await session.flush()
+        return step
+
+    async def _close_step(self, step: AgentRunStep, *, status: str) -> None:
+        step.status = status
+        step.completed_at = utc_now()
+
+    async def _finalize_error(
+        self,
+        session: AsyncSession,
+        *,
+        run: AgentRun,
+        budget: LoopBudget,
+        exc: BudgetExceededError,
+    ) -> None:
+        run.status = "error"
+        run.error = str(exc)
+        run.completed_at = utc_now()
+        run.updated_at = utc_now()
+        await append_run_event(
+            session,
+            run_id=run.id,
+            event_type="v1.run.error",
+            payload={"cause": exc.cause, "message": str(exc), "budget": budget.snapshot()},
+        )
+
 
 def _extract_memory(content: str) -> str | None:
     marker = "remember that "
@@ -215,3 +327,6 @@ def _extract_tool_directive(content: str) -> dict[str, Any] | None:
     if not isinstance(name, str) or not isinstance(args, dict):
         return None
     return {"name": name, "args": args}
+
+
+__all__ = ["AgentLoop", "ToolDefinition"]
