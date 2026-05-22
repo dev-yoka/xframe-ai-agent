@@ -21,8 +21,8 @@ def test_agent_conversation_kind_column_is_migrated() -> None:
         migration_text,
         flags=re.DOTALL,
     )
-    creates_with_kind = (
-        create_match is not None and re.search(r'Column\(\s*"kind"', create_match.group("body"))
+    creates_with_kind = create_match is not None and re.search(
+        r'Column\(\s*"kind"', create_match.group("body")
     )
     adds_kind = re.search(
         r'add_column\(\s*"agent_conversations"\s*,\s*sa\.Column\(\s*"kind"',

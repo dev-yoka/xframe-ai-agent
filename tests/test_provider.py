@@ -86,8 +86,7 @@ async def test_failover_error_lists_provider_failures_in_order() -> None:
             pass
 
     assert str(exc_info.value) == (
-        "All providers failed: gemini-vertex: ADC missing; "
-        "anthropic: credit balance is too low"
+        "All providers failed: gemini-vertex: ADC missing; " "anthropic: credit balance is too low"
     )
 
 

@@ -52,9 +52,9 @@ class AnthropicProvider:
             cast(
                 "ToolParam",
                 {
-                "name": tool.name,
-                "description": tool.description,
-                "input_schema": tool.input_model.model_json_schema(),
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.input_model.model_json_schema(),
                 },
             )
             for tool in tools

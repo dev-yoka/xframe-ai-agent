@@ -351,8 +351,7 @@ def run_response(
         completed_at=run.completed_at,
         cancelled_at=run.cancelled_at,
         pending_tool_calls=[
-            pending_tool_call_response(tool_call)
-            for tool_call in pending_tool_calls or []
+            pending_tool_call_response(tool_call) for tool_call in pending_tool_calls or []
         ],
     )
 

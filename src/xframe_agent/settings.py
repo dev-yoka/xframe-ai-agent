@@ -99,9 +99,7 @@ class Settings(BaseSettings):
     @property
     def provider_configured(self) -> bool:
         return bool(
-            self.gemini_developer_api_key
-            or self.gemini_vertex_project
-            or self.anthropic_api_key
+            self.gemini_developer_api_key or self.gemini_vertex_project or self.anthropic_api_key
         )
 
     @property

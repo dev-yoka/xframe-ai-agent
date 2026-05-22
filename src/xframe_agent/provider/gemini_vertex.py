@@ -60,10 +60,7 @@ class GeminiVertexProvider:
             for message in messages
         ]
         tool_decl = genai_types.Tool(
-            function_declarations=[
-                _function_declaration(genai_types, tool)
-                for tool in tools
-            ]
+            function_declarations=[_function_declaration(genai_types, tool) for tool in tools]
         )
         config = genai_types.GenerateContentConfig(
             tools=[tool_decl] if tools else None,
