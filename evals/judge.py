@@ -29,7 +29,7 @@ def _llm_judge(*, expected: str, actual: str, rubric: str) -> bool:
     """
 
     try:
-        import anthropic  # type: ignore[import-not-found]  # noqa: F401
+        import anthropic  # noqa: F401
     except ImportError:
         return expected.strip() == actual.strip()
 
