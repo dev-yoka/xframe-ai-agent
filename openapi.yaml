@@ -344,6 +344,7 @@
             "title": "Edited Args"
           },
           "tool_call_id": {
+            "minLength": 1,
             "title": "Tool Call Id",
             "type": "string"
           }
@@ -641,6 +642,40 @@
         "title": "MessageResponse",
         "type": "object"
       },
+      "PendingToolCallResponse": {
+        "properties": {
+          "args": {
+            "additionalProperties": true,
+            "title": "Args",
+            "type": "object"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "requires_approval": {
+            "title": "Requires Approval",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tool_name": {
+            "title": "Tool Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tool_name",
+          "status",
+          "args",
+          "requires_approval"
+        ],
+        "title": "PendingToolCallResponse",
+        "type": "object"
+      },
       "RefreshRequest": {
         "properties": {
           "refresh_token": {
@@ -792,6 +827,13 @@
               }
             ],
             "title": "Output Message Id"
+          },
+          "pending_tool_calls": {
+            "items": {
+              "$ref": "#/components/schemas/PendingToolCallResponse"
+            },
+            "title": "Pending Tool Calls",
+            "type": "array"
           },
           "started_at": {
             "anyOf": [

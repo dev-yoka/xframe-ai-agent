@@ -115,6 +115,26 @@ class PriceFrameClient:
         payload = response.json()
         return payload
 
+    async def post_public_json(
+        self,
+        path: str,
+        *,
+        json: Mapping[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> Any:
+        """POST a public JSON payload to PriceFRAME without bearer auth."""
+
+        request_headers = {**self._default_headers}
+        if headers:
+            request_headers.update(headers)
+        response = await self._request(
+            "POST",
+            path,
+            headers=request_headers,
+            json=json,
+        )
+        return response.json()
+
     async def put_json(
         self,
         path: str,

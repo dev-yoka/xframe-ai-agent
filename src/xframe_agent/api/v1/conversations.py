@@ -163,8 +163,8 @@ async def send_message(
         return RunCreateResponse.model_validate(replay.response_payload)
 
     run = await create_run_record(session, auth, conversation_id, payload.content, payload.source)
-    await execute_run(session, settings=settings, run_id=run.id, context=auth)
-    result = RunCreateResponse(run_id=run.id, status="completed")
+    executed_run = await execute_run(session, settings=settings, run_id=run.id, context=auth)
+    result = RunCreateResponse(run_id=run.id, status=executed_run.status)
     await store_replay(
         session,
         user_id=auth.user_id,

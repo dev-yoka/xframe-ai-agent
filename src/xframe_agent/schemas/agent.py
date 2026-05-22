@@ -64,6 +64,14 @@ class RunCreateResponse(BaseModel):
     status: str
 
 
+class PendingToolCallResponse(BaseModel):
+    id: str
+    tool_name: str
+    status: str
+    args: dict[str, object]
+    requires_approval: bool
+
+
 class RunResponse(BaseModel):
     id: str
     conversation_id: str
@@ -75,10 +83,11 @@ class RunResponse(BaseModel):
     started_at: datetime | None
     completed_at: datetime | None
     cancelled_at: datetime | None
+    pending_tool_calls: list[PendingToolCallResponse] = Field(default_factory=list)
 
 
 class DecisionRequest(BaseModel):
-    tool_call_id: str
+    tool_call_id: str = Field(min_length=1)
     decision: Literal["approve", "reject", "edit"]
     edited_args: dict[str, object] | None = None
 

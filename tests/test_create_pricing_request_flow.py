@@ -149,6 +149,7 @@ async def test_system_prompt_injected_for_create_pricing_request_conversation(
     system_text: str = messages_sent[0].content[0].payload["text"]
     assert "xFRAME AI Agent" in system_text
     assert "pricing assistant for PriceFRAME" in system_text
+    assert "Calling a write tool creates a server-side proposal only" in system_text
     assert messages_sent[1].role == "user"
 
 

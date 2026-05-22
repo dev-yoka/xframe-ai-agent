@@ -72,7 +72,7 @@ class ProviderFailoverRouter:
         max_output_tokens: int,
         timeout_seconds: float = 30.0,
     ) -> AsyncIterator[StreamEvent]:
-        last_error: ProviderError | None = None
+        failures: list[tuple[str, ProviderError]] = []
         for provider in self._healthy_providers():
             try:
                 async with asyncio.timeout(timeout_seconds):
@@ -85,15 +85,18 @@ class ProviderFailoverRouter:
                         yield event
                 return
             except ProviderError as exc:
-                last_error = exc
+                failures.append((provider.name, exc))
                 if not exc.failover:
                     raise
                 self.mark_unhealthy(provider.name)
             except TimeoutError as exc:
-                last_error = ProviderError(f"{provider.name} timed out: {exc}")
+                failures.append((provider.name, ProviderError(f"timed out: {exc}")))
                 self.mark_unhealthy(provider.name)
 
-        raise last_error or ProviderError("No healthy provider is available")
+        if failures:
+            joined = "; ".join(f"{provider_name}: {error}" for provider_name, error in failures)
+            raise ProviderError(f"All providers failed: {joined}")
+        raise ProviderError("No healthy provider is available")
 
     def mark_unhealthy(self, provider_name: str) -> None:
         now = utc_now()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from xframe_agent.provider.anthropic import AnthropicProvider
 from xframe_agent.provider.base import Provider, ProviderFailoverRouter
+from xframe_agent.provider.gemini_aistudio import GeminiAIStudioProvider
 from xframe_agent.provider.gemini_vertex import GeminiVertexProvider
 from xframe_agent.settings import Settings
 
@@ -14,11 +15,13 @@ def build_router(settings: Settings) -> ProviderFailoverRouter | None:
     Returns ``None`` when no provider is configured — callers should fall back
     to the deterministic :class:`AgentLoop`.
 
-    Order: Gemini Vertex (primary) → Anthropic (fallback). To use a different
-    order or different providers, edit this function.
+    Order: Gemini API key → Gemini Vertex → Anthropic. To use a different order
+    or different providers, edit this function.
     """
 
     providers: list[Provider] = []
+    if settings.gemini_developer_api_key:
+        providers.append(GeminiAIStudioProvider(settings))
     if settings.gemini_vertex_project:
         providers.append(GeminiVertexProvider(settings))
     if settings.anthropic_api_key:

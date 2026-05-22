@@ -162,6 +162,18 @@ async def test_approved_write_decision_executes_tool_and_records_audit(
         run_id = run.id
         tool_call_id = tool_call.id
 
+    snapshot = await client.get(f"/api/v1/agent/runs/{run_id}")
+    assert snapshot.status_code == 200
+    assert snapshot.json()["pending_tool_calls"] == [
+        {
+            "id": tool_call_id,
+            "tool_name": "update_corridor_pricing",
+            "status": "proposed",
+            "args": {"corridor_id": 99, "fx_spread": "0.0200"},
+            "requires_approval": True,
+        }
+    ]
+
     response = await client.post(
         f"/api/v1/agent/runs/{run_id}/decisions",
         json={"tool_call_id": tool_call_id, "decision": "approve"},
@@ -192,6 +204,44 @@ async def test_approved_write_decision_executes_tool_and_records_audit(
         audit_rows = (await session.execute(select(AgentAuditLog))).scalars().all()
         assert len(audit_rows) == 1
         assert audit_rows[0].action == "update_corridor_pricing"
+
+
+async def test_wrong_write_decision_id_reports_available_tool_calls(
+    phase_e_app_client: tuple[AsyncClient, Any, FakePriceFrameClient],
+) -> None:
+    client, app, _fake_priceframe = phase_e_app_client
+    async with app.state.session_factory() as session:
+        conversation = AgentConversation(user_id=7, title="Wrong decision id")
+        session.add(conversation)
+        await session.flush()
+        run = AgentRun(conversation_id=conversation.id, user_id=7, status="awaiting_decision")
+        session.add(run)
+        await session.flush()
+        tool_call = AgentToolCall(
+            run_id=run.id,
+            tool_name="set_fx_spread",
+            status="proposed",
+            requires_approval=True,
+            args={
+                "corridor_id": 99,
+                "applied_fx_spread": "0.0200",
+                "minimum_spread": "0.0100",
+            },
+        )
+        session.add(tool_call)
+        await session.commit()
+        run_id = run.id
+        tool_call_id = tool_call.id
+
+    response = await client.post(
+        f"/api/v1/agent/runs/{run_id}/decisions",
+        json={"tool_call_id": "not-the-tool-call", "decision": "approve"},
+    )
+
+    assert response.status_code == 404
+    message = response.json()["error"]["message"]
+    assert "Tool call not found for this run" in message
+    assert tool_call_id in message
 
 
 async def test_run_can_propose_write_tool_for_human_decision(

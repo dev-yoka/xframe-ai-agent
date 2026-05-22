@@ -7,13 +7,15 @@ from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 import xframe_agent.models  # noqa: F401
+from xframe_agent.api.v1 import conversations
 from xframe_agent.auth.dependencies import get_auth_context
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.db.base import Base
 from xframe_agent.main import create_app
+from xframe_agent.models import AgentRun
 from xframe_agent.settings import Settings
 
 
@@ -103,3 +105,40 @@ async def test_tool_discovery_filters_by_permissions(agent_client: AsyncClient) 
     assert "get_quotation" in tool_names
     assert "recalculate_quote_aggregates" in tool_names
     assert "create_quotation" not in tool_names
+
+
+async def test_send_message_returns_actual_run_status(
+    agent_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_execute_run(
+        session: AsyncSession,
+        *,
+        settings: Settings,
+        run_id: str,
+        context: AuthContext,
+    ) -> AgentRun:
+        del settings, context
+        run = await session.get(AgentRun, run_id)
+        assert run is not None
+        run.status = "error"
+        run.error = "provider unavailable"
+        return run
+
+    monkeypatch.setattr(conversations, "execute_run", fake_execute_run)
+    create_response = await agent_client.post(
+        "/api/v1/agent/conversations",
+        headers={"Idempotency-Key": "send-message-conversation"},
+        json={"title": "Message status"},
+    )
+    assert create_response.status_code == 201
+    conversation_id = create_response.json()["id"]
+
+    message_response = await agent_client.post(
+        f"/api/v1/agent/conversations/{conversation_id}/messages",
+        headers={"Idempotency-Key": "send-message-error"},
+        json={"content": "Show me my open quotations", "source": "text"},
+    )
+
+    assert message_response.status_code == 200
+    assert message_response.json()["status"] == "error"

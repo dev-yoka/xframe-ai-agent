@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from collections.abc import Mapping
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -35,15 +36,13 @@ async def login(
 
     try:
         async with PriceFrameClient.from_settings(settings) as client:
-            # Call PriceFRAME's login endpoint with basic auth-style payload
-            login_response = await client.post_json(
+            login_response = await client.post_public_json(
                 "/api/auth/login",
-                jwt_raw="",  # No JWT needed for login
                 json={"email": request.email, "password": request.password},
             )
     except PriceFrameError as exc:
         # Surface PriceFRAME errors as-is
-        status_code = getattr(exc, "status_code", status.HTTP_503_SERVICE_UNAVAILABLE)
+        status_code = _upstream_status_code(exc)
         if status_code == 401:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -59,14 +58,12 @@ async def login(
             detail=str(exc),
         ) from exc
 
-    # Extract token from response
-    if not isinstance(login_response, dict) or "token" not in login_response:
+    token = _extract_access_token(login_response)
+    if token is None:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Invalid login response from PriceFRAME",
         )
-
-    token = str(login_response["token"])
 
     # Verify the token
     try:
@@ -116,13 +113,12 @@ async def refresh(
 
     try:
         async with PriceFrameClient.from_settings(settings) as client:
-            refresh_response = await client.post_json(
+            refresh_response = await client.post_public_json(
                 "/api/auth/refresh",
-                jwt_raw=request.refresh_token,
-                json={},
+                json={"refresh_token": request.refresh_token},
             )
     except PriceFrameError as exc:
-        status_code = getattr(exc, "status_code", status.HTTP_503_SERVICE_UNAVAILABLE)
+        status_code = _upstream_status_code(exc)
         if status_code == 401:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -135,14 +131,14 @@ async def refresh(
             ) from exc
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
-    if not isinstance(refresh_response, dict) or "token" not in refresh_response:
+    token = _extract_access_token(refresh_response)
+    if token is None:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Invalid refresh response from PriceFRAME",
         )
 
-    token = str(refresh_response["token"])
-    expires_at = refresh_response.get("expires_at")
+    expires_at = _mapping(refresh_response).get("expires_at")
     if isinstance(expires_at, int):
         expires_at = expires_at
     else:
@@ -163,3 +159,34 @@ async def me(auth: AuthDep) -> MeResponse:
         permissions=list(auth.permissions),
         session_id=auth.session_id,
     )
+
+
+def _upstream_status_code(exc: PriceFrameError) -> int:
+    return exc.status_code or status.HTTP_503_SERVICE_UNAVAILABLE
+
+
+def _extract_access_token(payload: Any) -> str | None:
+    data = _mapping(payload)
+
+    for key in ("access_token", "token"):
+        value = data.get(key)
+        if isinstance(value, str) and value:
+            return value
+
+    nested_data = _mapping(data.get("data"))
+    for key in ("access_token", "token"):
+        value = nested_data.get(key)
+        if isinstance(value, str) and value:
+            return value
+
+    session = _mapping(nested_data.get("session"))
+    token = session.get("token")
+    if isinstance(token, str) and token:
+        return token
+    return None
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    if isinstance(value, Mapping):
+        return value
+    return {}

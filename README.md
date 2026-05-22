@@ -17,10 +17,10 @@ Python 3.12 + FastAPI service for the Sales Representative agent workflow. Price
 - Attachments API stores blobs in S3-compatible storage, tracks ClamAV scan status, and can scan inline or through arq.
 - Memory API exposes user-visible memory rows, with the deterministic loop writing a small summarizer memory when the user says "remember that ...".
 - Voice transcription endpoint uses Groq Whisper Large v3 Turbo when `GROQ_API_KEY` is configured.
-- Provider protocol and failover router shells for Gemini Vertex, Gemini AI Studio, and Anthropic. AI Studio fails closed when `ALLOW_REAL_DATA=true`.
+- Provider protocol and failover router for Gemini API-key calls, Gemini Vertex, and Anthropic. The API-key provider uses `GEMINI_API_KEY` against `generativelanguage.googleapis.com` and fails closed when `ALLOW_REAL_DATA=true`.
 - arq worker entry point for durable run execution and a synthetic eval harness with five golden traces.
 
-Provider adapters still remain shells; the current loop is deterministic until the model-orchestrated loop is expanded against live provider credentials.
+Provider order is `GEMINI_API_KEY` first, then Gemini Vertex, then Anthropic fallback.
 
 ## Stack
 

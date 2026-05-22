@@ -74,6 +74,8 @@ class Settings(BaseSettings):
     groq_whisper_model: str = "whisper-large-v3-turbo"
 
     allow_real_data: bool = False
+    gemini_api_key: str | None = Field(default=None, repr=False)
+    gemini_api_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
     gemini_vertex_project: str | None = None
     gemini_vertex_location: str = "us-central1"
     gemini_aistudio_api_key: str | None = Field(default=None, repr=False)
@@ -96,7 +98,15 @@ class Settings(BaseSettings):
 
     @property
     def provider_configured(self) -> bool:
-        return bool(self.gemini_vertex_project or self.anthropic_api_key)
+        return bool(
+            self.gemini_developer_api_key
+            or self.gemini_vertex_project
+            or self.anthropic_api_key
+        )
+
+    @property
+    def gemini_developer_api_key(self) -> str | None:
+        return self.gemini_api_key or self.gemini_aistudio_api_key
 
     @property
     def langfuse_configured(self) -> bool:

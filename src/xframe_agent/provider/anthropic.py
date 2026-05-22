@@ -1,18 +1,20 @@
 """Anthropic fallback provider.
 
-The ``anthropic`` SDK is imported lazily so it stays an optional runtime
-dependency. Install with ``uv add anthropic`` when you plan to enable
-Claude failover.
+The ``anthropic`` SDK is imported lazily so local tests can construct the
+provider without touching SDK client state until a real stream is requested.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from xframe_agent.provider.base import ChatMessage, ProviderError, StreamEvent
 from xframe_agent.settings import Settings
 from xframe_agent.tools.base import ToolDefinition
+
+if TYPE_CHECKING:
+    from anthropic.types import MessageParam, ToolParam
 
 
 class AnthropicProvider:
@@ -38,27 +40,33 @@ class AnthropicProvider:
             return
 
         try:
-            import anthropic  # type: ignore[import-not-found]
+            import anthropic
         except ImportError as exc:  # pragma: no cover - import gate
             raise ProviderError("anthropic SDK not installed; run `uv add anthropic`") from exc
 
         client = anthropic.AsyncAnthropic(api_key=self._api_key)
-        anthropic_messages = [_to_anthropic_message(message) for message in messages]
-        tool_specs = [
-            {
+        anthropic_messages: list[MessageParam] = [
+            _to_anthropic_message(message) for message in messages
+        ]
+        tool_specs: list[ToolParam] = [
+            cast(
+                "ToolParam",
+                {
                 "name": tool.name,
                 "description": tool.description,
                 "input_schema": tool.input_model.model_json_schema(),
-            }
+                },
+            )
             for tool in tools
         ]
+        tools_param = tool_specs if tool_specs else anthropic.omit
 
         try:
             async with client.messages.stream(
                 model=model,
                 max_tokens=max_output_tokens,
                 messages=anthropic_messages,
-                tools=tool_specs or None,
+                tools=tools_param,
             ) as stream:
                 pending_tool: dict[str, Any] | None = None
                 async for event in stream:
@@ -114,7 +122,7 @@ class AnthropicProvider:
             raise ProviderError(f"Anthropic call failed: {exc}") from exc
 
 
-def _to_anthropic_message(message: ChatMessage) -> dict[str, Any]:
+def _to_anthropic_message(message: ChatMessage) -> MessageParam:
     text_parts: list[str] = []
     for block in message.content:
         payload = block.payload
@@ -123,4 +131,4 @@ def _to_anthropic_message(message: ChatMessage) -> dict[str, Any]:
         elif "text" in payload:
             text_parts.append(str(payload["text"]))
     role = "user" if message.role in {"user", "tool", "system"} else "assistant"
-    return {"role": role, "content": "\n".join(text_parts)}
+    return cast("MessageParam", {"role": role, "content": "\n".join(text_parts)})

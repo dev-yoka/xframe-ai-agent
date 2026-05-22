@@ -39,8 +39,8 @@ class GeminiVertexProvider:
             return
 
         try:
-            from google import genai  # type: ignore[import-not-found]
-            from google.genai import types as genai_types  # type: ignore[import-not-found]
+            from google import genai
+            from google.genai import types as genai_types
         except ImportError as exc:  # pragma: no cover - import gate
             raise ProviderError(
                 "google-genai SDK not installed; run `uv add google-genai`"
@@ -61,11 +61,7 @@ class GeminiVertexProvider:
         ]
         tool_decl = genai_types.Tool(
             function_declarations=[
-                genai_types.FunctionDeclaration(
-                    name=tool.name,
-                    description=tool.description,
-                    parameters=tool.input_model.model_json_schema(),
-                )
+                _function_declaration(genai_types, tool)
                 for tool in tools
             ]
         )
@@ -130,3 +126,13 @@ def _message_text(message: ChatMessage) -> str:
             elif "text" in payload:
                 parts.append(str(payload["text"]))
     return "\n".join(parts)
+
+
+def _function_declaration(genai_types: Any, tool: ToolDefinition[Any, Any]) -> Any:
+    """Build a Gemini function declaration from Pydantic JSON Schema."""
+
+    return genai_types.FunctionDeclaration(
+        name=tool.name,
+        description=tool.description,
+        parameters_json_schema=tool.input_model.model_json_schema(),
+    )

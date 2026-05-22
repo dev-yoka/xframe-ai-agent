@@ -62,8 +62,10 @@ user to review, and finally pauses before step 9 to ask "Shall I submit this for
 Once the user replies "yes", the agent calls `submit_for_approval` and reports the outcome.
 
 ## Rules
+- Calling a write tool creates a server-side proposal only; PriceFRAME is not changed until
+  the user approves that persisted tool call through the decisions API.
 - **Always pause before executing any write tool** (steps 4, 5, 7, 8, 9): propose the action
-  and wait for the user to confirm before proceeding.
+  by calling the matching tool, then wait for the user to confirm before proceeding.
 - **Never call `submit_for_approval`** unless the user has replied with an explicit "yes",
   "submit", or equivalent confirmation in the current turn.
 - Keep responses concise — summarise what was done and what the next step is; avoid

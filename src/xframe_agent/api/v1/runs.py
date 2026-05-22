@@ -20,7 +20,7 @@ from xframe_agent.models import AgentAuditLog, AgentRun, AgentToolCall
 from xframe_agent.models.agent import utc_now
 from xframe_agent.priceframe import PriceFrameClient
 from xframe_agent.priceframe.errors import PriceFrameError
-from xframe_agent.schemas import DecisionRequest, RunResponse
+from xframe_agent.schemas import DecisionRequest, PendingToolCallResponse, RunResponse
 from xframe_agent.settings import Settings, get_settings
 from xframe_agent.tools.base import ToolPermissionError
 from xframe_agent.tools.registry import tool_registry
@@ -35,7 +35,8 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 @router.get("/runs/{run_id}", response_model=RunResponse)
 async def get_run(run_id: str, session: SessionDep, auth: AuthDep) -> RunResponse:
     run = await require_run(session, auth, run_id)
-    return run_response(run)
+    pending_tool_calls = await list_pending_tool_calls(session, run_id)
+    return run_response(run, pending_tool_calls=pending_tool_calls)
 
 
 @router.post("/runs/{run_id}/cancel", response_model=RunResponse)
@@ -270,8 +271,26 @@ async def require_tool_call(
     )
     tool_call = result.scalar_one_or_none()
     if tool_call is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool call not found")
+        pending_tool_calls = await list_pending_tool_calls(session, run_id)
+        if pending_tool_calls:
+            available = ", ".join(call.id for call in pending_tool_calls)
+            detail = f"Tool call not found for this run. Pending tool_call_id values: {available}"
+        else:
+            detail = "Tool call not found for this run. No pending tool calls exist for this run."
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
     return tool_call
+
+
+async def list_pending_tool_calls(session: AsyncSession, run_id: str) -> list[AgentToolCall]:
+    result = await session.execute(
+        select(AgentToolCall)
+        .where(
+            AgentToolCall.run_id == run_id,
+            AgentToolCall.status.in_(("pending", "proposed", "awaiting_approval")),
+        )
+        .order_by(AgentToolCall.created_at.asc())
+    )
+    return list(result.scalars().all())
 
 
 def _audit_payload(
@@ -305,7 +324,21 @@ def _audit_entity(tool_name: str, args: dict[str, Any]) -> tuple[str, int]:
     return "agent_tool_call", 0
 
 
-def run_response(run: AgentRun) -> RunResponse:
+def pending_tool_call_response(tool_call: AgentToolCall) -> PendingToolCallResponse:
+    return PendingToolCallResponse(
+        id=tool_call.id,
+        tool_name=tool_call.tool_name,
+        status=tool_call.status,
+        args=dict(tool_call.args),
+        requires_approval=tool_call.requires_approval,
+    )
+
+
+def run_response(
+    run: AgentRun,
+    *,
+    pending_tool_calls: list[AgentToolCall] | None = None,
+) -> RunResponse:
     return RunResponse(
         id=run.id,
         conversation_id=run.conversation_id,
@@ -317,6 +350,10 @@ def run_response(run: AgentRun) -> RunResponse:
         started_at=run.started_at,
         completed_at=run.completed_at,
         cancelled_at=run.cancelled_at,
+        pending_tool_calls=[
+            pending_tool_call_response(tool_call)
+            for tool_call in pending_tool_calls or []
+        ],
     )
 
 

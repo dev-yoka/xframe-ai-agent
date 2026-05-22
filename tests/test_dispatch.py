@@ -57,6 +57,10 @@ def _settings(tmp_path: Path) -> Settings:
     return Settings(
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'dispatch.db'}",
         priceframe_jwt_secret="x" * 32,
+        gemini_api_key=None,
+        gemini_aistudio_api_key=None,
+        gemini_vertex_project=None,
+        anthropic_api_key=None,
     )
 
 

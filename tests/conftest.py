@@ -19,6 +19,10 @@ def test_settings() -> Settings:
         health_check_externals=False,
         prometheus_enabled=False,
         rate_limit_enabled=False,
+        gemini_api_key=None,
+        gemini_aistudio_api_key=None,
+        gemini_vertex_project=None,
+        anthropic_api_key=None,
     )
 
 
