@@ -102,6 +102,7 @@ PG_PASSWORD=<your-pw> docker compose -f docker-compose.prod.yml up -d
 ```
 
 The container entrypoint automatically runs `alembic upgrade head` before starting uvicorn.
+It uses `${PORT:-8000}` so managed platforms such as Render can inject a port.
 
 ## 6. Post-deploy smoke test
 
