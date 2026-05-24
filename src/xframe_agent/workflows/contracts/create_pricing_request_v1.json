@@ -1005,13 +1005,7 @@
             "decimals": 2
           }
         }
-      ],
-      "on_complete": {
-        "tool": "stage_setup_fee",
-        "args_template": {
-          "payload": "{{draft.setup_fee}}"
-        }
-      }
+      ]
     },
     {
       "id": "pricing",
@@ -1431,13 +1425,7 @@
             "decimals": 2
           }
         }
-      ],
-      "on_complete": {
-        "tool": "stage_pnl_projection",
-        "args_template": {
-          "payload": "{{draft.pnl}}"
-        }
-      }
+      ]
     },
     {
       "id": "quoting_summary",
@@ -1655,7 +1643,7 @@
       "on_complete": {
         "tool": "submit_for_approval",
         "args_template": {
-          "quote_payload": "{{draft.full_payload}}",
+          "quote_id": "{{draft.created_quote_id}}",
           "comment": "{{field:approvals.approval_comment}}"
         }
       }
