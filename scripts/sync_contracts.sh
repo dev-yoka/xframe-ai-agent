@@ -69,6 +69,27 @@ uv run ruff check --fix --select I "$tmpdir/create_pricing_request_v1.py" >/dev/
 
 if [[ "$mode" == "--check" ]]; then
   ok=0
+  expected_json_manifest="$tmpdir/expected-json.txt"
+  actual_json_manifest="$tmpdir/actual-json.txt"
+  expected_model_manifest="$tmpdir/expected-models.txt"
+  actual_model_manifest="$tmpdir/actual-models.txt"
+
+  find "$tmpdir" -maxdepth 1 -type f -name "*.json" -exec basename {} \; | sort > "$expected_json_manifest"
+  find "$DEST_DIR" -maxdepth 1 -type f -name "*.json" -exec basename {} \; | sort > "$actual_json_manifest"
+  printf '%s\n' "create_pricing_request_v1.py" > "$expected_model_manifest"
+  find "$MODELS_DIR" -maxdepth 1 -type f -name "*.py" ! -name "__init__.py" -exec basename {} \; | sort > "$actual_model_manifest"
+
+  if ! diff -q "$expected_json_manifest" "$actual_json_manifest" >/dev/null 2>&1; then
+    comm -23 "$expected_json_manifest" "$actual_json_manifest" | sed "s/^/drift: missing /"
+    comm -13 "$expected_json_manifest" "$actual_json_manifest" | sed "s/^/drift: stale /"
+    ok=1
+  fi
+
+  if ! diff -q "$expected_model_manifest" "$actual_model_manifest" >/dev/null 2>&1; then
+    comm -23 "$expected_model_manifest" "$actual_model_manifest" | sed "s/^/drift: missing /"
+    comm -13 "$expected_model_manifest" "$actual_model_manifest" | sed "s/^/drift: stale /"
+    ok=1
+  fi
 
   for src in "$tmpdir"/*.json; do
     name="$(basename "$src")"
@@ -91,6 +112,9 @@ if [[ "$mode" == "--check" ]]; then
   echo "contracts in sync"
   exit 0
 fi
+
+find "$DEST_DIR" -maxdepth 1 -type f -name "*.json" -delete
+find "$MODELS_DIR" -maxdepth 1 -type f -name "*.py" ! -name "__init__.py" -delete
 
 cp "$tmpdir"/*.json "$DEST_DIR/"
 cp "$tmpdir/create_pricing_request_v1.py" "$MODELS_DIR/create_pricing_request_v1.py"

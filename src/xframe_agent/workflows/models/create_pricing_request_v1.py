@@ -64,6 +64,18 @@ class EnumOption(BaseModel):
     label: str
 
 
+class OptionsSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    type: Literal["priceframe_api"]
+    endpoint: str = Field(..., min_length=1)
+    value_path: str = Field(..., min_length=1)
+    label_path: str | None = Field(None, min_length=1)
+    depends_on: list[str] | None = None
+    cache_ttl_seconds: int | None = Field(None, gt=0, le=9007199254740991)
+
+
 class Validation(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -148,6 +160,7 @@ class FieldModel(BaseModel):
     type: Type
     required: bool
     enum_options: list[EnumOption] | None = None
+    options_source: OptionsSource | None = None
     validation: Validation | None = None
     suggestion: Suggestion | None = None
     ui: Ui | None = None

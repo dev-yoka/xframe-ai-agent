@@ -94,7 +94,16 @@
           "label": "Payout countries",
           "type": "multi_enum",
           "required": true,
-          "enum_options": [],
+          "options_source": {
+            "type": "priceframe_api",
+            "endpoint": "/api/v1/corridors/active/filters",
+            "value_path": "countries",
+            "label_path": "countries",
+            "depends_on": [
+              "regions"
+            ],
+            "cache_ttl_seconds": 300
+          },
           "ui": {
             "hint": "Select at least one country per region."
           }
