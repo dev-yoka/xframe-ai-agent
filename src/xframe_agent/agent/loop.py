@@ -26,6 +26,7 @@ from xframe_agent.agent.guided_workflows import (
     create_pricing_request_input_payload,
     create_pricing_request_step_entered_payload,
     is_generic_create_pricing_request,
+    parse_create_pricing_request_submission,
 )
 from xframe_agent.agent.redaction import redact
 from xframe_agent.auth.jwt import AuthContext
@@ -82,9 +83,38 @@ class AgentLoop:
         user_message = await self._input_message(session, run)
         redacted = redact(user_message.content)
         conversation = await session.get(AgentConversation, run.conversation_id)
+        is_create_pricing_conversation = (
+            conversation is not None and conversation.kind == CREATE_PRICING_REQUEST_WORKFLOW
+        )
+        if is_create_pricing_conversation:
+            try:
+                workflow_args = parse_create_pricing_request_submission(redacted.text)
+            except (ValueError, json.JSONDecodeError) as exc:
+                await self._close_step(step_record, status="error")
+                await self._finalize_workflow_error(session, run=run, exc=exc)
+                await session.commit()
+                return run
+            if workflow_args is not None:
+                await self._close_step(step_record, status="completed")
+                await append_run_event(
+                    session,
+                    run_id=run.id,
+                    event_type="v1.step.completed",
+                    payload={"step": budget.steps, "kind": "model"},
+                )
+                return await self._propose_tool_call(
+                    session,
+                    run=run,
+                    context=context,
+                    budget=budget,
+                    tool_name="create_quotation",
+                    args=workflow_args,
+                    model_name="deterministic-guided-workflow",
+                    started=started,
+                )
+
         is_create_pricing_wizard = (
-            conversation is not None
-            and conversation.kind == CREATE_PRICING_REQUEST_WORKFLOW
+            is_create_pricing_conversation
             and is_generic_create_pricing_request(redacted.text)
         )
         proposal = self._build_tool_proposal(redacted.text, context)
@@ -154,85 +184,17 @@ class AgentLoop:
             return run
 
         if proposal is not None:
-            try:
-                budget.record_tool_call()
-            except BudgetExceededError as exc:
-                await self._finalize_error(session, run=run, budget=budget, exc=exc)
-                await session.commit()
-                return run
-
-            tool = tool_registry.get(proposal["name"])
-            assert tool is not None  # _build_tool_proposal guarantees this
-            parsed_args = tool.input_model.model_validate(proposal["args"])
-            requires_approval = await tool.requires_approval(parsed_args, context)
-
-            tool_call_step = await self._open_step(
+            return await self._propose_tool_call(
                 session,
-                run_id=run.id,
-                seq=budget.steps,
-                kind="tool_call",
-            )
-            tool_call = AgentToolCall(
-                run_id=run.id,
+                run=run,
+                context=context,
+                budget=budget,
                 tool_name=proposal["name"],
-                status="proposed" if requires_approval else "pending",
                 args=proposal["args"],
-                requires_approval=requires_approval,
-                step_id=tool_call_step.id,
+                model_name="deterministic-phase-e",
+                started=started,
+                output_message_id=assistant_message.id,
             )
-            session.add(tool_call)
-            await session.flush()
-            run.output_message_id = assistant_message.id
-            run.status = "awaiting_decision" if requires_approval else "running"
-            run.updated_at = utc_now()
-            await append_run_event(
-                session,
-                run_id=run.id,
-                event_type="v1.tool.proposed",
-                payload={
-                    "tool_call_id": tool_call.id,
-                    "tool_name": tool_call.tool_name,
-                    "args": tool_call.args,
-                    "requires_approval": requires_approval,
-                },
-            )
-            if requires_approval:
-                await append_run_event(
-                    session,
-                    run_id=run.id,
-                    event_type="v1.run.awaiting_decision",
-                    payload={"tool_call_id": tool_call.id},
-                )
-                await self._close_step(tool_call_step, status="awaiting_decision")
-                observe_step_count(budget.steps)
-                observe_run_latency(
-                    model="deterministic-phase-e",
-                    seconds=perf_counter() - started,
-                )
-                await session.commit()
-                return run
-
-            # Auto-approve path: tool's policy says no human gate needed.
-            # Execution itself still happens through the decisions endpoint or
-            # an arq worker; for the in-loop deterministic path we leave the
-            # tool call in "pending" so the existing decisions endpoint can
-            # finish it (preserving the audit and idempotency story).
-            await self._close_step(tool_call_step, status="pending")
-            run.status = "awaiting_decision"
-            run.updated_at = utc_now()
-            await append_run_event(
-                session,
-                run_id=run.id,
-                event_type="v1.run.awaiting_decision",
-                payload={"tool_call_id": tool_call.id, "auto_approved": True},
-            )
-            observe_step_count(budget.steps)
-            observe_run_latency(
-                model="deterministic-phase-e",
-                seconds=perf_counter() - started,
-            )
-            await session.commit()
-            return run
 
         run.output_message_id = assistant_message.id
         run.status = "completed"
@@ -333,6 +295,101 @@ class AgentLoop:
         step.status = status
         step.completed_at = utc_now()
 
+    async def _propose_tool_call(
+        self,
+        session: AsyncSession,
+        *,
+        run: AgentRun,
+        context: AuthContext,
+        budget: LoopBudget,
+        tool_name: str,
+        args: dict[str, Any],
+        model_name: str,
+        started: float,
+        output_message_id: str | None = None,
+    ) -> AgentRun:
+        try:
+            budget.record_tool_call()
+        except BudgetExceededError as exc:
+            await self._finalize_error(session, run=run, budget=budget, exc=exc)
+            await session.commit()
+            return run
+
+        tool = tool_registry.get(tool_name)
+        if tool is None or not context.has_permission(tool.permission):
+            await self._finalize_tool_error(
+                session,
+                run=run,
+                cause="tool_unavailable",
+                message=f"Tool '{tool_name}' is not available to this user.",
+            )
+            await session.commit()
+            return run
+
+        parsed_args = tool.input_model.model_validate(args)
+        requires_approval = await tool.requires_approval(parsed_args, context)
+        tool_call_step = await self._open_step(
+            session,
+            run_id=run.id,
+            seq=budget.steps,
+            kind="tool_call",
+        )
+        tool_call = AgentToolCall(
+            run_id=run.id,
+            tool_name=tool.name,
+            status="proposed" if requires_approval else "pending",
+            args=parsed_args.model_dump(mode="json"),
+            requires_approval=requires_approval,
+            step_id=tool_call_step.id,
+        )
+        session.add(tool_call)
+        await session.flush()
+        run.output_message_id = output_message_id
+        run.status = "awaiting_decision" if requires_approval else "running"
+        run.updated_at = utc_now()
+        await append_run_event(
+            session,
+            run_id=run.id,
+            event_type="v1.tool.proposed",
+            payload={
+                "tool_call_id": tool_call.id,
+                "tool_name": tool_call.tool_name,
+                "args": tool_call.args,
+                "requires_approval": requires_approval,
+            },
+        )
+        if requires_approval:
+            await append_run_event(
+                session,
+                run_id=run.id,
+                event_type="v1.run.awaiting_decision",
+                payload={"tool_call_id": tool_call.id},
+            )
+            await self._close_step(tool_call_step, status="awaiting_decision")
+            observe_step_count(budget.steps)
+            observe_run_latency(model=model_name, seconds=perf_counter() - started)
+            await session.commit()
+            return run
+
+        # Auto-approve path: tool's policy says no human gate needed.
+        # Execution itself still happens through the decisions endpoint or
+        # an arq worker; for the in-loop deterministic path we leave the
+        # tool call in "pending" so the existing decisions endpoint can
+        # finish it (preserving the audit and idempotency story).
+        await self._close_step(tool_call_step, status="pending")
+        run.status = "awaiting_decision"
+        run.updated_at = utc_now()
+        await append_run_event(
+            session,
+            run_id=run.id,
+            event_type="v1.run.awaiting_decision",
+            payload={"tool_call_id": tool_call.id, "auto_approved": True},
+        )
+        observe_step_count(budget.steps)
+        observe_run_latency(model=model_name, seconds=perf_counter() - started)
+        await session.commit()
+        return run
+
     async def _finalize_error(
         self,
         session: AsyncSession,
@@ -350,6 +407,39 @@ class AgentLoop:
             run_id=run.id,
             event_type="v1.run.error",
             payload={"cause": exc.cause, "message": str(exc), "budget": budget.snapshot()},
+        )
+
+    async def _finalize_workflow_error(
+        self,
+        session: AsyncSession,
+        *,
+        run: AgentRun,
+        exc: Exception,
+    ) -> None:
+        await self._finalize_tool_error(
+            session,
+            run=run,
+            cause="workflow_payload_invalid",
+            message=str(exc),
+        )
+
+    async def _finalize_tool_error(
+        self,
+        session: AsyncSession,
+        *,
+        run: AgentRun,
+        cause: str,
+        message: str,
+    ) -> None:
+        run.status = "error"
+        run.error = message
+        run.completed_at = utc_now()
+        run.updated_at = utc_now()
+        await append_run_event(
+            session,
+            run_id=run.id,
+            event_type="v1.run.error",
+            payload={"cause": cause, "message": message},
         )
 
 

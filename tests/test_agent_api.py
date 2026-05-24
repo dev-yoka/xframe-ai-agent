@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -40,6 +41,7 @@ async def agent_client(test_settings: Settings, tmp_path: Path) -> AsyncIterator
             permissions=(
                 "agent.enabled",
                 "agent.quotes.read",
+                "agent.quotes.create",
                 "agent.quotes.recalc",
                 "agent.salesforce.read",
             ),
@@ -107,7 +109,8 @@ async def test_tool_discovery_filters_by_permissions(agent_client: AsyncClient) 
     tool_names = {tool["name"] for tool in response.json()["tools"]}
     assert "get_quotation" in tool_names
     assert "recalculate_quote_aggregates" in tool_names
-    assert "create_quotation" not in tool_names
+    assert "create_quotation" in tool_names
+    assert "bulk_add_corridors" not in tool_names
 
 
 async def test_send_message_returns_actual_run_status(
@@ -220,3 +223,51 @@ async def test_create_pricing_request_emits_workflow_step_event(agent_client: As
     assert '"step_index":0' in stream_text
     assert '"total_steps":7' in stream_text
     assert "event: v1.input.requested" in stream_text
+
+
+async def test_full_workflow_submission_proposes_create_quotation(
+    agent_client: AsyncClient,
+) -> None:
+    create_response = await agent_client.post(
+        "/api/v1/agent/conversations",
+        headers={"Idempotency-Key": "full-workflow-conversation"},
+        json={"title": "Wizard", "kind": "create_pricing_request"},
+    )
+    assert create_response.status_code == 201
+    conversation_id = create_response.json()["id"]
+    workflow_payload = {
+        "summary": {
+            "sending_partner_name": "Acme",
+            "opportunity_type": "New partner",
+            "base_currency": "USD",
+            "corridor_regions": ["Middle east"],
+            "corridor_countries": ["United Arab Emirates"],
+        },
+        "setup_fee": {"standard_commitment_fee": "10000"},
+    }
+
+    run_response = await agent_client.post(
+        f"/api/v1/agent/conversations/{conversation_id}/messages",
+        headers={"Idempotency-Key": "full-workflow-message"},
+        json={
+            "content": f"workflow:create_pricing_request\n{json.dumps(workflow_payload)}",
+            "source": "text",
+        },
+    )
+
+    assert run_response.status_code == 200
+    assert run_response.json()["status"] == "awaiting_decision"
+    run_id = run_response.json()["run_id"]
+
+    stream_response = await agent_client.get(f"/api/v1/agent/runs/{run_id}/stream")
+    assert stream_response.status_code == 200
+    stream_text = stream_response.text
+    assert "event: v1.tool.proposed" in stream_text
+    assert '"tool_name":"create_quotation"' in stream_text
+    assert '"name":"Acme"' in stream_text
+    assert '"opportunity_type":"New partner"' in stream_text
+    assert '"currency":"USD"' in stream_text
+    assert '"regions":["Middle east"]' in stream_text
+    assert '"countries":["United Arab Emirates"]' in stream_text
+    assert '"notes":' in stream_text
+    assert "setup_fee" in stream_text

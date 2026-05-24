@@ -145,34 +145,62 @@ def normalize_create_pricing_request_args(payload: Mapping[str, Any]) -> dict[st
     """Convert UI workflow values into create_quotation tool args."""
 
     today = utc_now().date().isoformat()
-    name = _clean_string(payload.get("name")) or _clean_string(payload.get("title"))
-    currency = (_clean_string(payload.get("currency")) or "USD").upper()
-    opportunity_type = _clean_string(payload.get("opportunity_type")) or _clean_string(
-        payload.get("opportunityType")
+    summary = payload.get("summary") if isinstance(payload.get("summary"), Mapping) else payload
+    assert isinstance(summary, Mapping)
+    name = (
+        _clean_string(summary.get("sending_partner_name"))
+        or _clean_string(summary.get("opportunity_name"))
+        or _clean_string(summary.get("name"))
+        or _clean_string(summary.get("title"))
+    )
+    currency = (
+        _clean_string(summary.get("base_currency"))
+        or _clean_string(summary.get("default_fee_currency"))
+        or _clean_string(summary.get("currency"))
+        or "USD"
+    ).upper()
+    opportunity_type = _clean_string(summary.get("opportunity_type")) or _clean_string(
+        summary.get("opportunityType")
     )
     args: dict[str, Any] = {
         "name": name or f"Pricing request - {today}",
         "opportunity_type": opportunity_type or "New partner",
         "currency": currency[:3],
-        "regions": _clean_string_list(payload.get("regions")),
-        "countries": _clean_string_list(payload.get("countries")),
+        "regions": _first_string_list(
+            summary,
+            "corridor_regions",
+            "regions",
+        ),
+        "countries": _first_string_list(
+            summary,
+            "corridor_countries",
+            "payout_countries",
+            "countries",
+        ),
     }
 
-    partner_name = _clean_string(payload.get("partner_name")) or _clean_string(
-        payload.get("partnerName")
+    partner_name = (
+        _clean_string(summary.get("partner_name"))
+        or _clean_string(summary.get("partnerName"))
+        or _clean_string(summary.get("sending_partner_name"))
     )
     if partner_name:
         args["partner_name"] = partner_name
 
-    salesforce_pr_id = _clean_string(payload.get("salesforce_pr_id")) or _clean_string(
-        payload.get("salesforcePrId")
+    salesforce_pr_id = (
+        _clean_string(summary.get("salesforce_pr_id"))
+        or _clean_string(summary.get("salesforcePrId"))
+        or _clean_string(summary.get("pr_code"))
     )
     if salesforce_pr_id:
         args["salesforce_pr_id"] = salesforce_pr_id
 
     notes = _clean_string(payload.get("notes"))
-    if notes:
-        args["notes"] = notes
+    workflow_note = json.dumps(
+        {"workflow": CREATE_PRICING_REQUEST_WORKFLOW, "payload": payload},
+        separators=(",", ":"),
+    )
+    args["notes"] = f"{notes}\n{workflow_note}" if notes else workflow_note
 
     return args
 
@@ -192,3 +220,11 @@ def _clean_string_list(value: Any) -> list[str]:
         if isinstance(item, str) and item.strip():
             cleaned.append(item.strip())
     return cleaned
+
+
+def _first_string_list(payload: Mapping[str, Any], *keys: str) -> list[str]:
+    for key in keys:
+        values = _clean_string_list(payload.get(key))
+        if values:
+            return values
+    return []
