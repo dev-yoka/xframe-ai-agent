@@ -7,7 +7,7 @@
       "id": "summary",
       "title": "Summary",
       "description": "Capture the opportunity, technical pricing model, and corridor scope.",
-      "approval_mode": "batch_at_submit",
+      "approval_mode": "per_tab",
       "fields": [
         {
           "id": "sending_partner_name",
