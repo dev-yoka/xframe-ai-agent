@@ -24,6 +24,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from xframe_agent.agent.budget import BudgetExceededError, LoopBudget
 from xframe_agent.agent.events import append_run_event
+from xframe_agent.agent.guided_workflows import (
+    create_pricing_request_input_payload,
+    is_generic_create_pricing_request,
+    latest_user_text,
+    parse_create_pricing_request_submission,
+)
 from xframe_agent.agent.prompts.create_pricing_request import get_system_prompt
 from xframe_agent.agent.redaction import redact
 from xframe_agent.agent.wrapping import wrap_tool_output
@@ -117,6 +123,30 @@ class ModelRunner:
                 ],
             )
             messages = [system_msg] + messages
+
+        if conv_kind == "create_pricing_request":
+            user_text = latest_user_text(messages)
+            try:
+                workflow_args = parse_create_pricing_request_submission(user_text)
+            except (ValueError, json.JSONDecodeError) as exc:
+                await self._finalize_error(
+                    session,
+                    run=run,
+                    budget=budget,
+                    cause="workflow_payload_invalid",
+                    message=str(exc),
+                )
+                await session.commit()
+                return run
+            if workflow_args is not None:
+                return await self._propose_guided_create_quotation(
+                    session,
+                    run=run,
+                    context=context,
+                    args=workflow_args,
+                )
+            if is_generic_create_pricing_request(user_text):
+                return await self._request_create_pricing_inputs(session, run=run, context=context)
 
         try:
             while True:
@@ -246,6 +276,101 @@ class ModelRunner:
             )
             await session.commit()
             return run
+
+    async def _request_create_pricing_inputs(
+        self,
+        session: AsyncSession,
+        *,
+        run: AgentRun,
+        context: AuthContext,
+    ) -> AgentRun:
+        run.started_at = run.started_at or utc_now()
+        assistant_text = (
+            "Let's set up the pricing request. I filled the basics so you can adjust "
+            "only what matters."
+        )
+        msg = AgentMessage(
+            conversation_id=run.conversation_id,
+            user_id=context.user_id,
+            role="assistant",
+            content=assistant_text,
+            source="agent",
+            run_id=run.id,
+        )
+        session.add(msg)
+        await session.flush()
+        run.output_message_id = msg.id
+        await append_run_event(
+            session,
+            run_id=run.id,
+            event_type="v1.message.delta",
+            payload={"message_id": msg.id, "delta": assistant_text},
+        )
+        await append_run_event(
+            session,
+            run_id=run.id,
+            event_type="v1.input.requested",
+            payload=create_pricing_request_input_payload(),
+        )
+        run.status = "completed"
+        run.completed_at = utc_now()
+        run.updated_at = utc_now()
+        await append_run_event(
+            session,
+            run_id=run.id,
+            event_type="v1.run.completed",
+            payload={"workflow": "create_pricing_request"},
+        )
+        await session.commit()
+        return run
+
+    async def _propose_guided_create_quotation(
+        self,
+        session: AsyncSession,
+        *,
+        run: AgentRun,
+        context: AuthContext,
+        args: dict[str, Any],
+    ) -> AgentRun:
+        run.started_at = run.started_at or utc_now()
+        tool = tool_registry.get("create_quotation")
+        if tool is None:
+            raise ProviderError("create_quotation tool is not registered")
+        parsed = tool.input_model.model_validate(args)
+        requires_approval = await tool.requires_approval(parsed, context)
+        step = await self._open_step(session, run_id=run.id, seq=1, kind="tool_call")
+        tool_call = AgentToolCall(
+            run_id=run.id,
+            tool_name=tool.name,
+            status="proposed" if requires_approval else "pending",
+            args=parsed.model_dump(mode="json"),
+            requires_approval=requires_approval,
+            step_id=step.id,
+        )
+        session.add(tool_call)
+        await session.flush()
+        await append_run_event(
+            session,
+            run_id=run.id,
+            event_type="v1.tool.proposed",
+            payload={
+                "tool_call_id": tool_call.id,
+                "tool_name": tool_call.tool_name,
+                "args": tool_call.args,
+                "requires_approval": requires_approval,
+            },
+        )
+        await self._close_step(step, status="awaiting_decision")
+        run.status = "awaiting_decision"
+        run.updated_at = utc_now()
+        await append_run_event(
+            session,
+            run_id=run.id,
+            event_type="v1.run.awaiting_decision",
+            payload={"tool_call_id": tool_call.id},
+        )
+        await session.commit()
+        return run
 
     async def _call_provider(
         self,

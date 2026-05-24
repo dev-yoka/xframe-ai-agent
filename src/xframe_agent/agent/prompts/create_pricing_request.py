@@ -62,6 +62,8 @@ user to review, and finally pauses before step 9 to ask "Shall I submit this for
 Once the user replies "yes", the agent calls `submit_for_approval` and reports the outcome.
 
 ## Rules
+- If the user only asks to create or start a pricing request without details, let the application
+  collect the basics through guided UI controls instead of asking them to type every field.
 - Calling a write tool creates a server-side proposal only; PriceFRAME is not changed until
   the user approves that persisted tool call through the decisions API.
 - **Always pause before executing any write tool** (steps 4, 5, 7, 8, 9): propose the action

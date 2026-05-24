@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.priceframe import PriceFrameClient
@@ -37,10 +37,30 @@ class CorridorDraft(BaseModel):
 class CreateQuotationInput(BaseModel):
     """Typed input for create_quotation tool."""
 
-    title: str = Field(min_length=1, description="Quotation title")
-    customer_id: int = Field(gt=0, description="Customer ID")
-    currency: str = Field(min_length=3, max_length=3, description="Currency code (e.g., USD)")
+    name: str | None = Field(default=None, min_length=1, description="Quotation name")
+    title: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Legacy alias for quotation name",
+    )
+    opportunity_type: str = Field(default="New partner", min_length=1)
+    customer_id: int | None = Field(default=None, gt=0, description="Legacy customer ID")
+    currency: str = Field(default="USD", min_length=3, max_length=3)
+    partner_name: str | None = Field(default=None)
+    salesforce_pr_id: str | None = Field(default=None)
+    regions: list[str] = Field(default_factory=list)
+    countries: list[str] = Field(default_factory=list)
     notes: str | None = Field(default=None, description="Optional notes")
+
+    @model_validator(mode="after")
+    def normalize_name_and_currency(self) -> CreateQuotationInput:
+        if self.name is None and self.title is not None:
+            self.name = self.title
+        if self.name is None or not self.name.strip():
+            raise ValueError("name is required")
+        self.name = self.name.strip()
+        self.currency = self.currency.upper()
+        return self
 
 
 class BulkAddCorridorsInput(BaseModel):
@@ -114,11 +134,26 @@ class CreateQuotationTool(ToolDefinition[CreateQuotationInput, JsonOutput]):
         ctx: AuthContext,
         priceframe: PriceFrameClient,
     ) -> JsonOutput:
-        payload = {
-            "title": args.title,
-            "customerId": args.customer_id,
-            "currency": args.currency,
+        currency = args.currency.upper()
+        payload: dict[str, Any] = {
+            "name": args.name,
+            "opportunityType": args.opportunity_type,
+            "regions": args.regions,
+            "countries": args.countries,
+            "fundingCurrency": currency,
+            "fundingCurrencies": [currency],
+            "sourceCurrency": currency,
+            "defaultFeeCurrency": currency,
         }
+        quoting_details: dict[str, Any] = {}
+        if args.partner_name:
+            quoting_details["partnerName"] = args.partner_name
+        if args.customer_id is not None:
+            quoting_details["customerId"] = args.customer_id
+        if quoting_details:
+            payload["quotingDetailsSnapshot"] = quoting_details
+        if args.salesforce_pr_id:
+            payload["salesforcePrId"] = args.salesforce_pr_id
         if args.notes:
             payload["notes"] = args.notes
         return JsonOutput(

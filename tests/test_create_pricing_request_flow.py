@@ -14,7 +14,7 @@ import xframe_agent.models  # noqa: F401
 from xframe_agent.agent.runner import ModelRunner
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.db.base import Base
-from xframe_agent.models import AgentConversation, AgentRun, AgentToolCall
+from xframe_agent.models import AgentConversation, AgentRun, AgentRunEvent, AgentToolCall
 from xframe_agent.provider.base import (
     ChatMessage,
     ContentBlock,
@@ -138,7 +138,12 @@ async def test_system_prompt_injected_for_create_pricing_request_conversation(
             history=[
                 ChatMessage(
                     role="user",
-                    content=[ContentBlock(type="text", payload={"text": "create pricing request"})],
+                    content=[
+                        ContentBlock(
+                            type="text",
+                            payload={"text": "Create a pricing request for Acme in USD"},
+                        )
+                    ],
                 )
             ],
         )
@@ -190,7 +195,12 @@ async def test_create_pricing_request_flow_pauses_on_create_quotation(
             history=[
                 ChatMessage(
                     role="user",
-                    content=[ContentBlock(type="text", payload={"text": "create pricing request"})],
+                    content=[
+                        ContentBlock(
+                            type="text",
+                            payload={"text": "Create a pricing request for Acme in USD"},
+                        )
+                    ],
                 )
             ],
         )
@@ -207,3 +217,112 @@ async def test_create_pricing_request_flow_pauses_on_create_quotation(
     assert tool_calls[0].tool_name == "create_quotation"
     assert tool_calls[0].requires_approval is True
     assert tool_calls[0].status == "proposed"
+
+
+async def test_generic_create_pricing_request_emits_input_controls_without_provider(
+    db: tuple[Settings, AsyncEngine, Any, str, str],
+) -> None:
+    """A generic create request should produce controls instead of asking for typed fields."""
+    settings, _engine, factory, _conv_id, run_id = db
+
+    provider = FakeProvider(script=[StreamEvent(kind="text_delta", payload={"delta": "unused"})])
+    router = ProviderFailoverRouter(providers=[provider])
+    runner = ModelRunner(
+        router=router,
+        settings=settings,
+        model="gemini-2.5-flash",
+        priceframe_factory=FakePriceFrame(),  # type: ignore[arg-type]
+    )
+
+    async with factory() as session:
+        run = await session.get(AgentRun, run_id)
+        assert run is not None
+        result = await runner.run(
+            session,
+            run=run,
+            context=_AUTH,
+            history=[
+                ChatMessage(
+                    role="user",
+                    content=[
+                        ContentBlock(type="text", payload={"text": "Create a pricing request"})
+                    ],
+                )
+            ],
+        )
+
+    assert result.status == "completed"
+    assert provider.calls == []
+
+    async with factory() as session:
+        events = (
+            (await session.execute(select(AgentRunEvent).where(AgentRunEvent.run_id == run_id)))
+            .scalars()
+            .all()
+        )
+
+    input_events = [event for event in events if event.event_type == "v1.input.requested"]
+    assert len(input_events) == 1
+    assert input_events[0].payload["workflow"] == "create_pricing_request"
+    assert input_events[0].payload["defaults"]["opportunity_type"] == "New partner"
+    assert input_events[0].payload["defaults"]["currency"] == "USD"
+
+
+async def test_create_pricing_request_submission_creates_tool_proposal_without_provider(
+    db: tuple[Settings, AsyncEngine, Any, str, str],
+) -> None:
+    """A structured workflow submission becomes a normal create_quotation approval card."""
+    settings, _engine, factory, _conv_id, run_id = db
+
+    provider = FakeProvider(script=[StreamEvent(kind="text_delta", payload={"delta": "unused"})])
+    router = ProviderFailoverRouter(providers=[provider])
+    runner = ModelRunner(
+        router=router,
+        settings=settings,
+        model="gemini-2.5-flash",
+        priceframe_factory=FakePriceFrame(),  # type: ignore[arg-type]
+    )
+
+    async with factory() as session:
+        run = await session.get(AgentRun, run_id)
+        assert run is not None
+        result = await runner.run(
+            session,
+            run=run,
+            context=_AUTH,
+            history=[
+                ChatMessage(
+                    role="user",
+                    content=[
+                        ContentBlock(
+                            type="text",
+                            payload={
+                                "text": (
+                                    "workflow:create_pricing_request\n"
+                                    '{"name":"India launch","opportunity_type":"New partner",'
+                                    '"currency":"USD","regions":["APAC"],"countries":["India"]}'
+                                )
+                            },
+                        )
+                    ],
+                )
+            ],
+        )
+
+    assert result.status == "awaiting_decision"
+    assert provider.calls == []
+
+    async with factory() as session:
+        tool_calls = (
+            (await session.execute(select(AgentToolCall).where(AgentToolCall.run_id == run_id)))
+            .scalars()
+            .all()
+        )
+
+    assert len(tool_calls) == 1
+    assert tool_calls[0].tool_name == "create_quotation"
+    assert tool_calls[0].status == "proposed"
+    assert tool_calls[0].args["name"] == "India launch"
+    assert tool_calls[0].args["opportunity_type"] == "New partner"
+    assert tool_calls[0].args["currency"] == "USD"
+    assert tool_calls[0].args["regions"] == ["APAC"]

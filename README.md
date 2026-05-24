@@ -13,6 +13,7 @@ Python 3.12 + FastAPI service for the Sales Representative agent workflow. Price
 - Agent persistence tables for conversations, messages, runs, run events, tool calls, idempotency keys, user cache, device tokens, and audit log.
 - Conversation/run REST API, SSE replay with `Last-Event-ID`, cancellation, and decision endpoints.
 - Pydantic-native tool registry with permission-filtered discovery. Registered tools cover the Phase D read path, pricing previews, quote creation, corridor writes, FX spread updates, approval submission, and quote aggregate recalculation.
+- Backend-owned guided setup for generic `Create a pricing request` prompts. The runner emits `v1.input.requested`; web/mobile clients submit `workflow:create_pricing_request` JSON; the runner converts that payload into a normal `create_quotation` proposal.
 - Human approval decisions execute pending write tool calls, send idempotency keys to PriceFRAME, create local `agent_audit_log` rows, and call `POST /api/v1/agent-audit-callbacks`.
 - Attachments API stores blobs in S3-compatible storage, tracks ClamAV scan status, and can scan inline or through arq.
 - Memory API exposes user-visible memory rows, with the deterministic loop writing a small summarizer memory when the user says "remember that ...".
@@ -102,6 +103,7 @@ git diff --exit-code openapi.yaml
 - `src/xframe_agent/auth/`: JWT verification and PriceFRAME profile introspection.
 - `src/xframe_agent/priceframe/`: PriceFRAME REST client.
 - `src/xframe_agent/agent/`: run loop, durable events, idempotency helpers.
+- `src/xframe_agent/agent/guided_workflows.py`: chat UI workflow contracts and submission parsing.
 - `src/xframe_agent/attachments/`: blob storage and ClamAV scan helpers.
 - `src/xframe_agent/tools/`: Pydantic-native tool definitions and registry.
 - `src/xframe_agent/provider/`: provider protocol and adapter shells.
