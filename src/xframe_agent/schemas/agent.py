@@ -107,6 +107,48 @@ class DecisionRequest(BaseModel):
     edited_args: dict[str, object] | None = None
 
 
+class StepAdvanceRequest(BaseModel):
+    """Request a per-tab step advance evaluation.
+
+    The wizard posts this when the user clicks Next on a per-tab step. The
+    agent runner resolves the contract's ``on_complete`` block against the
+    persisted draft and returns one of: ``approved`` (no card needed),
+    ``requested`` (proposal awaiting decision), or ``blocked``.
+    """
+
+    step_id: str = Field(min_length=1, max_length=64)
+
+
+class StepAdvanceToolCall(BaseModel):
+    tool_call_id: str
+    tool_name: str
+    args: dict[str, object]
+    requires_approval: bool
+
+
+class StepAdvanceResponse(BaseModel):
+    step_id: str
+    status: Literal["approved", "requested", "blocked"]
+    tool_calls: list[StepAdvanceToolCall] = Field(default_factory=list)
+    reason: str | None = None
+    detail: dict[str, object] | None = None
+
+
+class StepDecisionRequest(BaseModel):
+    """Approve or reject a previously emitted bundled step proposal."""
+
+    step_id: str = Field(min_length=1, max_length=64)
+    decision: Literal["approve", "reject"]
+    reason: str | None = Field(default=None, max_length=2000)
+
+
+class StepDecisionResponse(BaseModel):
+    step_id: str
+    status: Literal["approved", "rejected"]
+    tool_call_results: list[dict[str, object]] = Field(default_factory=list)
+    reason: str | None = None
+
+
 class ToolSchema(BaseModel):
     name: str
     description: str

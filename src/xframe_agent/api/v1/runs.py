@@ -13,10 +13,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from xframe_agent.agent.events import append_run_event, event_payload, list_run_events
+from xframe_agent.agent.workflow_advance import (
+    StepAdvanceError,
+    emit_advance_event,
+    evaluate_step_advance,
+)
 from xframe_agent.auth.dependencies import get_auth_context
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.db.session import get_session
-from xframe_agent.models import AgentAuditLog, AgentRun, AgentToolCall
+from xframe_agent.models import (
+    AgentAuditLog,
+    AgentRun,
+    AgentRunStep,
+    AgentToolCall,
+    AgentWorkflowDraft,
+)
 from xframe_agent.models.agent import utc_now
 from xframe_agent.priceframe import PriceFrameClient
 from xframe_agent.priceframe.errors import (
@@ -25,7 +36,16 @@ from xframe_agent.priceframe.errors import (
     PriceFrameForbiddenError,
     PriceFrameNotFoundError,
 )
-from xframe_agent.schemas import DecisionRequest, PendingToolCallResponse, RunResponse
+from xframe_agent.schemas import (
+    DecisionRequest,
+    PendingToolCallResponse,
+    RunResponse,
+    StepAdvanceRequest,
+    StepAdvanceResponse,
+    StepAdvanceToolCall,
+    StepDecisionRequest,
+    StepDecisionResponse,
+)
 from xframe_agent.settings import Settings, get_settings
 from xframe_agent.tools.base import ToolPermissionError
 from xframe_agent.tools.registry import tool_registry
@@ -125,8 +145,7 @@ async def decide_run_tool_call(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown tool")
 
     call_args: dict[str, Any] = dict(payload.edited_args or tool_call.args)
-    parsed_args = tool.input_model.model_validate(call_args)
-    tool_call.args = parsed_args.model_dump(mode="json")
+    tool_call.args = tool.input_model.model_validate(call_args).model_dump(mode="json")
     tool_call.status = "executing"
     tool_call.approved_at = utc_now()
     run.updated_at = utc_now()
@@ -145,26 +164,15 @@ async def decide_run_tool_call(
     await session.commit()
 
     try:
-        async with PriceFrameClient.from_settings(
-            settings,
-            default_headers={"Idempotency-Key": tool_call.id},
-        ) as priceframe:
-            result_model = await tool.execute(parsed_args, auth, priceframe)
-            result_payload = result_model.model_dump(mode="json")
-            audit_log_id: int | None = None
-            if tool.risk != "READ":
-                audit_payload = _audit_payload(
-                    run_id=run_id,
-                    tool_call=tool_call,
-                    args=call_args,
-                    result=result_payload,
-                    request=request,
-                )
-                audit_log_id = await priceframe.post_agent_audit_callback(
-                    jwt_raw=auth.jwt_raw,
-                    service_secret=settings.priceframe_service_secret,
-                    payload=audit_payload,
-                )
+        result_payload = await _execute_approved_tool_call(
+            session,
+            tool_call=tool_call,
+            run=run,
+            auth=auth,
+            settings=settings,
+            request=request,
+            mark_run_completed=True,
+        )
     except ToolPermissionError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except ValueError as exc:
@@ -174,20 +182,66 @@ async def decide_run_tool_call(
             status_code=_priceframe_error_status(exc),
             detail=str(exc),
         ) from exc
+    await session.commit()
+    return {"success": True, "tool_call_status": tool_call.status, "result": result_payload}
+
+
+async def _execute_approved_tool_call(
+    session: AsyncSession,
+    *,
+    tool_call: AgentToolCall,
+    run: AgentRun,
+    auth: AuthContext,
+    settings: Settings,
+    request: Request,
+    mark_run_completed: bool,
+) -> dict[str, Any]:
+    """Execute a tool call that the user already approved.
+
+    Mirrors the legacy path inside ``decide_run_tool_call`` so the new bundled
+    step-decision endpoint can reuse it for each call in the bundle. Audit
+    callbacks and ``AgentAuditLog`` rows are written exactly the same way.
+    """
+
+    tool = tool_registry.get(tool_call.tool_name)
+    if tool is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown tool")
+    call_args: dict[str, Any] = dict(tool_call.args)
+    parsed_args = tool.input_model.model_validate(call_args)
+    async with PriceFrameClient.from_settings(
+        settings,
+        default_headers={"Idempotency-Key": tool_call.id},
+    ) as priceframe:
+        result_model = await tool.execute(parsed_args, auth, priceframe)
+        result_payload: dict[str, Any] = result_model.model_dump(mode="json")
+        audit_log_id: int | None = None
+        if tool.risk != "READ":
+            audit_payload = _audit_payload(
+                run_id=run.id,
+                tool_call=tool_call,
+                args=call_args,
+                result=result_payload,
+                request=request,
+            )
+            audit_log_id = await priceframe.post_agent_audit_callback(
+                jwt_raw=auth.jwt_raw,
+                service_secret=settings.priceframe_service_secret,
+                payload=audit_payload,
+            )
 
     tool_call.status = "succeeded"
     tool_call.result = result_payload
     tool_call.priceframe_audit_log_id = audit_log_id
     tool_call.completed_at = utc_now()
     run.updated_at = utc_now()
-    if run.status == "awaiting_decision":
+    if mark_run_completed and run.status == "awaiting_decision":
         run.status = "completed"
         run.completed_at = utc_now()
     if tool.risk != "READ":
         session.add(
             AgentAuditLog(
                 user_id=auth.user_id,
-                run_id=run_id,
+                run_id=run.id,
                 action=tool_call.tool_name,
                 payload={
                     "tool_call_id": tool_call.id,
@@ -199,12 +253,266 @@ async def decide_run_tool_call(
         )
     await append_run_event(
         session,
-        run_id=run_id,
+        run_id=run.id,
         event_type="v1.tool.completed",
-        payload={"tool_call_id": payload.tool_call_id, "result": result_payload},
+        payload={"tool_call_id": tool_call.id, "result": result_payload},
+    )
+    return result_payload
+
+
+@router.post("/runs/{run_id}/step_advance", response_model=StepAdvanceResponse)
+async def request_step_advance(
+    run_id: str,
+    payload: StepAdvanceRequest,
+    session: SessionDep,
+    auth: AuthDep,
+) -> StepAdvanceResponse:
+    """Evaluate the bundled ToolDecision for a per-tab step click of Next."""
+
+    run = await require_run(session, auth, run_id)
+    # The wizard reuses the same run across multiple per-tab advances. A run
+    # may already be ``completed`` from an earlier model turn; reopen it so the
+    # SSE stream (and decision events) belong to a consistent session.
+    if run.status in {"completed", "error"}:
+        run.status = "awaiting_decision"
+        run.completed_at = None
+        run.updated_at = utc_now()
+
+    draft = await session.get(AgentWorkflowDraft, run.conversation_id)
+    try:
+        decision = await evaluate_step_advance(
+            session,
+            run=run,
+            context=auth,
+            step_id=payload.step_id,
+            draft=draft,
+        )
+    except StepAdvanceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    await emit_advance_event(session, run=run, step_id=payload.step_id, decision=decision)
+    # Mark the run completed when the step required no proposal so the SSE
+    # stream closes cleanly; keep it ``awaiting_decision`` while a bundle is
+    # pending so the client can pick up the upcoming events.
+    if decision.status == "approved":
+        run.status = "completed"
+        run.completed_at = utc_now()
+        run.updated_at = utc_now()
+        await append_run_event(
+            session,
+            run_id=run.id,
+            event_type="v1.run.completed",
+            payload={"step_id": payload.step_id, "via": "step_advance_approved"},
+        )
+    elif decision.status == "blocked":
+        run.status = "completed"
+        run.completed_at = utc_now()
+        run.updated_at = utc_now()
+        await append_run_event(
+            session,
+            run_id=run.id,
+            event_type="v1.run.completed",
+            payload={"step_id": payload.step_id, "via": "step_advance_blocked"},
+        )
+    await session.commit()
+
+    response_tool_calls: list[StepAdvanceToolCall] = []
+    for index, call in enumerate(decision.tool_calls):
+        tool_call_id = (
+            decision.persisted_tool_call_ids[index]
+            if index < len(decision.persisted_tool_call_ids)
+            else ""
+        )
+        tool = tool_registry.get(call.tool_name)
+        requires_approval = tool.risk != "READ" if tool is not None else True
+        response_tool_calls.append(
+            StepAdvanceToolCall(
+                tool_call_id=tool_call_id,
+                tool_name=call.tool_name,
+                args=call.args,
+                requires_approval=requires_approval,
+            )
+        )
+    assert decision.status in ("approved", "requested", "blocked")
+    return StepAdvanceResponse.model_validate(
+        {
+            "step_id": payload.step_id,
+            "status": decision.status,
+            "tool_calls": [tc.model_dump() for tc in response_tool_calls],
+            "reason": decision.blocked_reason,
+            "detail": decision.detail,
+        }
+    )
+
+
+@router.post("/runs/{run_id}/step_decisions", response_model=StepDecisionResponse)
+async def decide_step_advance(
+    run_id: str,
+    payload: StepDecisionRequest,
+    session: SessionDep,
+    auth: AuthDep,
+    settings: SettingsDep,
+    request: Request,
+) -> StepDecisionResponse:
+    """Approve or reject a previously-emitted bundled step proposal."""
+
+    run = await require_run(session, auth, run_id)
+    bundled_tool_calls = await _list_proposed_tool_calls_for_step(
+        session,
+        run_id=run_id,
+        step_id=payload.step_id,
+    )
+    if not bundled_tool_calls:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No pending bundled proposal for this step",
+        )
+
+    if payload.decision == "reject":
+        for tool_call in bundled_tool_calls:
+            tool_call.status = "rejected"
+            tool_call.rejected_at = utc_now()
+            tool_call.completed_at = utc_now()
+            await append_run_event(
+                session,
+                run_id=run_id,
+                event_type="v1.tool.rejected",
+                payload={"tool_call_id": tool_call.id, "edited_args": None},
+            )
+        run.updated_at = utc_now()
+        if run.status == "awaiting_decision":
+            run.status = "completed"
+            run.completed_at = utc_now()
+        await append_run_event(
+            session,
+            run_id=run_id,
+            event_type="v1.workflow.step.advance_rejected",
+            payload={
+                "step_id": payload.step_id,
+                "status": "rejected",
+                "reason": payload.reason,
+                "tool_call_ids": [tc.id for tc in bundled_tool_calls],
+            },
+        )
+        await append_run_event(
+            session,
+            run_id=run_id,
+            event_type="v1.run.completed",
+            payload={"step_id": payload.step_id, "via": "step_decision_rejected"},
+        )
+        await session.commit()
+        return StepDecisionResponse(
+            step_id=payload.step_id,
+            status="rejected",
+            reason=payload.reason,
+        )
+
+    # Approval path — execute each call serially (writes never run in parallel).
+    tool_call_results: list[dict[str, Any]] = []
+    for tool_call in bundled_tool_calls:
+        tool_call.status = "executing"
+        tool_call.approved_at = utc_now()
+        await append_run_event(
+            session,
+            run_id=run_id,
+            event_type="v1.tool.approved",
+            payload={"tool_call_id": tool_call.id, "edited_args": None},
+        )
+        await append_run_event(
+            session,
+            run_id=run_id,
+            event_type="v1.tool.started",
+            payload={"tool_call_id": tool_call.id, "tool_name": tool_call.tool_name},
+        )
+        await session.commit()
+        try:
+            result_payload = await _execute_approved_tool_call(
+                session,
+                tool_call=tool_call,
+                run=run,
+                auth=auth,
+                settings=settings,
+                request=request,
+                mark_run_completed=False,
+            )
+        except ToolPermissionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            ) from exc
+        except PriceFrameError as exc:
+            raise HTTPException(
+                status_code=_priceframe_error_status(exc),
+                detail=str(exc),
+            ) from exc
+        tool_call_results.append(
+            {
+                "tool_call_id": tool_call.id,
+                "tool_name": tool_call.tool_name,
+                "result": result_payload,
+            }
+        )
+
+    run.updated_at = utc_now()
+    if run.status == "awaiting_decision":
+        run.status = "completed"
+        run.completed_at = utc_now()
+    await append_run_event(
+        session,
+        run_id=run_id,
+        event_type="v1.workflow.step.advance_approved",
+        payload={
+            "step_id": payload.step_id,
+            "status": "approved",
+            "tool_call_ids": [tc.id for tc in bundled_tool_calls],
+        },
+    )
+    await append_run_event(
+        session,
+        run_id=run_id,
+        event_type="v1.run.completed",
+        payload={"step_id": payload.step_id, "via": "step_decision_approved"},
     )
     await session.commit()
-    return {"success": True, "tool_call_status": tool_call.status, "result": result_payload}
+    return StepDecisionResponse(
+        step_id=payload.step_id,
+        status="approved",
+        tool_call_results=tool_call_results,
+    )
+
+
+async def _list_proposed_tool_calls_for_step(
+    session: AsyncSession,
+    *,
+    run_id: str,
+    step_id: str,
+) -> list[AgentToolCall]:
+    """Return tool calls awaiting a decision that belong to a given step.
+
+    ``evaluate_step_advance`` tags each bundled call's ``AgentRunStep`` row with
+    ``kind='workflow_step:<step_id>'``. We join through ``step_id`` here so a
+    run that already had unrelated tool calls from the model loop never gets
+    mistakenly approved en bloc.
+    """
+
+    kind = f"workflow_step:{step_id}"
+    result = await session.execute(
+        select(AgentToolCall)
+        .join(AgentRunStep, AgentRunStep.id == AgentToolCall.step_id)
+        .where(
+            AgentToolCall.run_id == run_id,
+            AgentToolCall.status.in_(("proposed", "pending", "awaiting_approval")),
+            AgentRunStep.kind == kind,
+        )
+        .order_by(AgentToolCall.created_at.asc())
+    )
+    return list(result.scalars().all())
 
 
 @router.get("/runs/{run_id}/stream")
