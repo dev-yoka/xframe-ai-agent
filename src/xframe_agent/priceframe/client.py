@@ -199,7 +199,7 @@ class PriceFrameClient:
                     self._raise_for_status(response)
                     return response
                 last_error = PriceFrameUnavailableError(
-                    "PriceFRAME returned a transient server error",
+                    _response_message(response),
                     status_code=response.status_code,
                 )
 

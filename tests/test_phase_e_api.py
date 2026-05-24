@@ -25,6 +25,7 @@ from xframe_agent.models import (
 )
 from xframe_agent.models.agent import AgentUserMemory
 from xframe_agent.priceframe.client import PriceFrameClient
+from xframe_agent.priceframe.errors import PriceFrameForbiddenError
 from xframe_agent.settings import Settings
 
 
@@ -34,6 +35,7 @@ class FakePriceFrameClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str, dict[str, Any] | None]] = []
         self.audit_payloads: list[dict[str, Any]] = []
+        self.audit_error: Exception | None = None
 
     async def __aenter__(self) -> FakePriceFrameClient:
         return self
@@ -52,6 +54,17 @@ class FakePriceFrameClient:
         self.calls.append(("PUT", path, {"json": json, "headers": headers, "jwt_raw": jwt_raw}))
         return {"success": True, "data": {"id": 99, "appliedFxSpread": "0.0200"}}
 
+    async def post_json(
+        self,
+        path: str,
+        *,
+        jwt_raw: str,
+        json: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        self.calls.append(("POST", path, {"json": json, "headers": headers, "jwt_raw": jwt_raw}))
+        return {"success": True, "data": {"id": 1234, "name": json["name"] if json else None}}
+
     async def post_agent_audit_callback(
         self,
         *,
@@ -59,6 +72,8 @@ class FakePriceFrameClient:
         service_secret: str,
         payload: dict[str, Any],
     ) -> int:
+        if self.audit_error is not None:
+            raise self.audit_error
         self.audit_payloads.append(
             {"jwt_raw": jwt_raw, "service_secret": service_secret, "payload": payload}
         )
@@ -204,6 +219,77 @@ async def test_approved_write_decision_executes_tool_and_records_audit(
         audit_rows = (await session.execute(select(AgentAuditLog))).scalars().all()
         assert len(audit_rows) == 1
         assert audit_rows[0].action == "update_corridor_pricing"
+
+
+async def test_create_quotation_decision_audits_created_quote_id(
+    phase_e_app_client: tuple[AsyncClient, Any, FakePriceFrameClient],
+) -> None:
+    client, app, fake_priceframe = phase_e_app_client
+    async with app.state.session_factory() as session:
+        conversation = AgentConversation(user_id=7, title="Create quote")
+        session.add(conversation)
+        await session.flush()
+        run = AgentRun(conversation_id=conversation.id, user_id=7, status="awaiting_decision")
+        session.add(run)
+        await session.flush()
+        tool_call = AgentToolCall(
+            run_id=run.id,
+            tool_name="create_quotation",
+            status="proposed",
+            requires_approval=True,
+            args={"name": "Agent quote", "opportunity_type": "New partner", "currency": "USD"},
+        )
+        session.add(tool_call)
+        await session.commit()
+        run_id = run.id
+        tool_call_id = tool_call.id
+
+    response = await client.post(
+        f"/api/v1/agent/runs/{run_id}/decisions",
+        json={"tool_call_id": tool_call_id, "decision": "approve"},
+    )
+
+    assert response.status_code == 200
+    assert fake_priceframe.calls[0][0:2] == ("POST", "/api/quotes")
+    assert fake_priceframe.audit_payloads[0]["payload"]["entity"] == "quote"
+    assert fake_priceframe.audit_payloads[0]["payload"]["entity_id"] == 1234
+    assert fake_priceframe.audit_payloads[0]["payload"]["agent_tool_call_id"] == tool_call_id
+
+
+async def test_audit_callback_forbidden_surfaces_as_forbidden(
+    phase_e_app_client: tuple[AsyncClient, Any, FakePriceFrameClient],
+) -> None:
+    client, app, fake_priceframe = phase_e_app_client
+    fake_priceframe.audit_error = PriceFrameForbiddenError(
+        "Invalid agent signature",
+        status_code=403,
+    )
+    async with app.state.session_factory() as session:
+        conversation = AgentConversation(user_id=7, title="Audit failure")
+        session.add(conversation)
+        await session.flush()
+        run = AgentRun(conversation_id=conversation.id, user_id=7, status="awaiting_decision")
+        session.add(run)
+        await session.flush()
+        tool_call = AgentToolCall(
+            run_id=run.id,
+            tool_name="create_quotation",
+            status="proposed",
+            requires_approval=True,
+            args={"name": "Agent quote", "opportunity_type": "New partner", "currency": "USD"},
+        )
+        session.add(tool_call)
+        await session.commit()
+        run_id = run.id
+        tool_call_id = tool_call.id
+
+    response = await client.post(
+        f"/api/v1/agent/runs/{run_id}/decisions",
+        json={"tool_call_id": tool_call_id, "decision": "approve"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["message"] == "Invalid agent signature"
 
 
 async def test_duplicate_approve_while_tool_call_executing_is_idempotent(

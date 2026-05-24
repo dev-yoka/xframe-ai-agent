@@ -19,7 +19,12 @@ from xframe_agent.db.session import get_session
 from xframe_agent.models import AgentAuditLog, AgentRun, AgentToolCall
 from xframe_agent.models.agent import utc_now
 from xframe_agent.priceframe import PriceFrameClient
-from xframe_agent.priceframe.errors import PriceFrameError
+from xframe_agent.priceframe.errors import (
+    PriceFrameAuthError,
+    PriceFrameError,
+    PriceFrameForbiddenError,
+    PriceFrameNotFoundError,
+)
 from xframe_agent.schemas import DecisionRequest, PendingToolCallResponse, RunResponse
 from xframe_agent.settings import Settings, get_settings
 from xframe_agent.tools.base import ToolPermissionError
@@ -152,6 +157,7 @@ async def decide_run_tool_call(
                     run_id=run_id,
                     tool_call=tool_call,
                     args=call_args,
+                    result=result_payload,
                     request=request,
                 )
                 audit_log_id = await priceframe.post_agent_audit_callback(
@@ -165,7 +171,7 @@ async def decide_run_tool_call(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     except PriceFrameError as exc:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
+            status_code=_priceframe_error_status(exc),
             detail=str(exc),
         ) from exc
 
@@ -300,9 +306,10 @@ def _audit_payload(
     run_id: str,
     tool_call: AgentToolCall,
     args: dict[str, Any],
+    result: dict[str, Any],
     request: Request,
 ) -> dict[str, Any]:
-    entity, entity_id = _audit_entity(tool_call.tool_name, args)
+    entity, entity_id = _audit_entity(tool_call.tool_name, args, result)
     return {
         "agent_run_id": run_id,
         "agent_tool_call_id": tool_call.id,
@@ -315,15 +322,40 @@ def _audit_payload(
     }
 
 
-def _audit_entity(tool_name: str, args: dict[str, Any]) -> tuple[str, int]:
+def _audit_entity(tool_name: str, args: dict[str, Any], result: dict[str, Any]) -> tuple[str, int]:
     if tool_name in {"update_corridor_pricing", "set_fx_spread"}:
         return "quote_corridor", int(args["corridor_id"])
     if tool_name in {"bulk_add_corridors", "submit_for_approval", "preview_pricing_change"}:
         return "quote", int(args["quote_id"])
     if tool_name == "create_quotation":
-        candidate = args.get("quote_id") or args.get("id") or 0
+        candidate = _result_entity_id(result) or args.get("quote_id") or args.get("id") or 0
         return "quote", int(candidate)
     return "agent_tool_call", 0
+
+
+def _result_entity_id(result: dict[str, Any]) -> int | None:
+    data = result.get("data")
+    if isinstance(data, dict):
+        nested = data.get("data")
+        nested_id = nested.get("id") if isinstance(nested, dict) else None
+        if isinstance(nested_id, int):
+            return nested_id
+        direct_id = data.get("id")
+        if isinstance(direct_id, int):
+            return direct_id
+    return None
+
+
+def _priceframe_error_status(exc: PriceFrameError) -> int:
+    if isinstance(exc, PriceFrameAuthError):
+        return status.HTTP_401_UNAUTHORIZED
+    if isinstance(exc, PriceFrameForbiddenError):
+        return status.HTTP_403_FORBIDDEN
+    if isinstance(exc, PriceFrameNotFoundError):
+        return status.HTTP_404_NOT_FOUND
+    if exc.status_code is not None and exc.status_code < 500:
+        return exc.status_code
+    return status.HTTP_502_BAD_GATEWAY
 
 
 def pending_tool_call_response(tool_call: AgentToolCall) -> PendingToolCallResponse:
