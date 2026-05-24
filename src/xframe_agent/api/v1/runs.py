@@ -211,12 +211,14 @@ async def decide_run_tool_call(
 async def stream_run(
     run_id: str,
     request: Request,
-    session: SessionDep,
     auth: AuthDep,
     settings: SettingsDep,
     last_event_id_header: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
 ) -> EventSourceResponse:
-    await require_run(session, auth, run_id)
+    session_factory = request.app.state.session_factory
+    async with session_factory() as validation_session:
+        await require_run(validation_session, auth, run_id)
+
     query_cursor = request.query_params.get("last_event_id")
     last_event_id = _parse_cursor(query_cursor or last_event_id_header)
 
@@ -224,12 +226,15 @@ async def stream_run(
         emitted_terminal = False
         cursor = last_event_id
         while True:
-            events = await list_run_events(
-                session,
-                run_id=run_id,
-                after_seq=cursor,
-                limit=settings.sse_replay_event_limit,
-            )
+            async with session_factory() as stream_session:
+                events = await list_run_events(
+                    stream_session,
+                    run_id=run_id,
+                    after_seq=cursor,
+                    limit=settings.sse_replay_event_limit,
+                )
+                run = await stream_session.get(AgentRun, run_id)
+
             for event in events:
                 cursor = event.seq
                 if event.event_type in {
@@ -244,7 +249,6 @@ async def stream_run(
                     "data": json.dumps(event_payload(event), separators=(",", ":")),
                 }
 
-            run = await session.get(AgentRun, run_id)
             if emitted_terminal or (
                 run and run.status in {"awaiting_decision", "completed", "error", "cancelled"}
             ):

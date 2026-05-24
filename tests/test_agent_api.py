@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sse_starlette.sse import AppStatus
 
 import xframe_agent.models  # noqa: F401
 from xframe_agent.api.v1 import conversations
@@ -56,6 +57,8 @@ async def agent_client(test_settings: Settings, tmp_path: Path) -> AsyncIterator
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client
+    AppStatus.should_exit = False
+    AppStatus.should_exit_event = None
     await app.state.engine.dispose()
 
 
