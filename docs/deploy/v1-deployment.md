@@ -3,7 +3,8 @@
 ## Prerequisites
 
 - Docker Engine 24+ and Docker Compose v2+
-- GCP service account key with **Vertex AI User** role (JSON file)
+- Gemini Developer API key for Render/test deployments, or a GCP service
+  account key with **Vertex AI User** role for Vertex deployments
 - Secrets from the PriceFRAME deploy owner:
   - `PRICEFRAME_JWT_SECRET` (HS256 symmetric key, must match PriceFRAME)
   - `PRICEFRAME_SERVICE_SECRET`
@@ -34,10 +35,19 @@ PRICEFRAME_SERVICE_SECRET=<must match deployed PriceFRAME>
 PRICEFRAME_JWT_ALGORITHM=HS256
 PRICEFRAME_PROFILE_CACHE_TTL_SECONDS=60
 
-GEMINI_VERTEX_PROJECT=<gcp project>
+# Render/test provider. Leave Vertex/Anthropic unset unless fully configured.
+GEMINI_API_KEY=<gemini api key>
+GEMINI_API_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+GEMINI_API_MAX_RETRIES=2
+GEMINI_API_RETRY_BASE_DELAY_SECONDS=0.25
+DEFAULT_MODEL=gemini-2.5-flash
+
+# Optional Vertex provider. Requires GOOGLE_APPLICATION_CREDENTIALS.
+GEMINI_VERTEX_PROJECT=
 GEMINI_VERTEX_LOCATION=us-central1
 
-ANTHROPIC_API_KEY=<optional fallback>
+# Optional Anthropic fallback. Requires a funded Anthropic account.
+ANTHROPIC_API_KEY=
 
 S3_ENDPOINT_URL=https://s3.<region>.amazonaws.com
 S3_ACCESS_KEY_ID=<...>
@@ -78,9 +88,14 @@ LANGFUSE_HOST=https://langfuse-yg.buy-frame.com
 | `PRICEFRAME_JWT_SECRET` | HS256 key shared with PriceFRAME |
 | `PRICEFRAME_SERVICE_SECRET` | Service-to-service secret for audit callbacks |
 | `PRICEFRAME_JWT_ALGORITHM` | Default `HS256` |
-| `GEMINI_VERTEX_PROJECT` | GCP project ID for Vertex AI |
-| `GEMINI_VERTEX_LOCATION` | Vertex AI region, e.g. `us-central1` |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Set automatically to `/var/run/secrets/gcp.json` |
+| `GEMINI_API_KEY` | Gemini Developer API key for API-key provider |
+| `GEMINI_API_BASE_URL` | Gemini Developer API base URL |
+| `GEMINI_API_MAX_RETRIES` | Retries transient Gemini API 429/5xx responses |
+| `GEMINI_API_RETRY_BASE_DELAY_SECONDS` | Base exponential retry delay for Gemini API |
+| `DEFAULT_MODEL` | Gemini model, currently `gemini-2.5-flash` |
+| `GEMINI_VERTEX_PROJECT` | Optional GCP project ID for Vertex AI |
+| `GEMINI_VERTEX_LOCATION` | Optional Vertex AI region, e.g. `us-central1` |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Required only when using Vertex |
 | `S3_ENDPOINT_URL` | S3 or MinIO endpoint for attachment storage |
 | `S3_ACCESS_KEY_ID` | S3 access key |
 | `S3_SECRET_ACCESS_KEY` | S3 secret key |

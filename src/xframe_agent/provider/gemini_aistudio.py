@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
@@ -10,6 +11,9 @@ import httpx
 from xframe_agent.provider.base import ChatMessage, ProviderError, StreamEvent
 from xframe_agent.settings import Settings
 from xframe_agent.tools.base import ToolDefinition
+
+_TRANSIENT_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRY_DELAY_SECONDS = 5.0
 
 
 class GeminiAIStudioProvider:
@@ -24,6 +28,8 @@ class GeminiAIStudioProvider:
             raise ProviderError("GEMINI_API_KEY is not configured")
         self._api_key = settings.gemini_developer_api_key
         self._base_url = settings.gemini_api_base_url.rstrip("/")
+        self._max_retries = max(0, settings.gemini_api_max_retries)
+        self._retry_base_delay_seconds = max(0.0, settings.gemini_api_retry_base_delay_seconds)
         self._client = client
 
     async def stream(
@@ -42,10 +48,14 @@ class GeminiAIStudioProvider:
         response: httpx.Response
         try:
             if self._client is not None:
-                response = await self._post_generate_content(self._client, model, payload)
+                response = await self._post_generate_content_with_retries(
+                    self._client, model, payload
+                )
             else:
                 async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
-                    response = await self._post_generate_content(client, model, payload)
+                    response = await self._post_generate_content_with_retries(
+                        client, model, payload
+                    )
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise ProviderError(f"Gemini API call failed: {_response_error(exc.response)}") from exc
@@ -70,6 +80,31 @@ class GeminiAIStudioProvider:
             },
             json=payload,
         )
+
+    async def _post_generate_content_with_retries(
+        self,
+        client: httpx.AsyncClient,
+        model: str,
+        payload: dict[str, Any],
+    ) -> httpx.Response:
+        attempts = self._max_retries + 1
+        response: httpx.Response | None = None
+        for attempt_index in range(attempts):
+            response = await self._post_generate_content(client, model, payload)
+            if response.status_code not in _TRANSIENT_STATUS_CODES:
+                return response
+            if attempt_index == attempts - 1:
+                return response
+            await asyncio.sleep(
+                _retry_delay_seconds(
+                    response,
+                    attempt_index=attempt_index,
+                    base_delay_seconds=self._retry_base_delay_seconds,
+                )
+            )
+        if response is None:
+            raise ProviderError("Gemini API call failed before sending a request")
+        return response
 
 
 def _request_payload(
@@ -163,6 +198,27 @@ def _response_error(response: httpx.Response) -> str:
     if isinstance(message, str):
         return message
     return f"HTTP {response.status_code}"
+
+
+def _retry_delay_seconds(
+    response: httpx.Response,
+    *,
+    attempt_index: int,
+    base_delay_seconds: float,
+) -> float:
+    retry_after = response.headers.get("Retry-After")
+    if retry_after is not None:
+        try:
+            retry_after_seconds = float(retry_after)
+            if retry_after_seconds > _MAX_RETRY_DELAY_SECONDS:
+                return _MAX_RETRY_DELAY_SECONDS
+            return retry_after_seconds
+        except ValueError:
+            pass
+    exponential_delay = float(base_delay_seconds * (2**attempt_index))
+    if exponential_delay > _MAX_RETRY_DELAY_SECONDS:
+        return _MAX_RETRY_DELAY_SECONDS
+    return exponential_delay
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:

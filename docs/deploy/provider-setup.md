@@ -4,6 +4,37 @@ This document covers provisioning AI provider credentials for xFRAME AI Agent.
 
 ---
 
+## Current test provider: Gemini Developer API
+
+For the Render test deployment, use the Gemini Developer API key path. This
+matches the direct `generativelanguage.googleapis.com` curl flow.
+
+```env
+GEMINI_API_KEY=<google-ai-studio-or-gemini-api-key>
+GEMINI_API_BASE_URL=https://generativelanguage.googleapis.com/v1beta
+GEMINI_API_MAX_RETRIES=2
+GEMINI_API_RETRY_BASE_DELAY_SECONDS=0.25
+DEFAULT_MODEL=gemini-2.5-flash
+```
+
+The provider retries transient Google API responses such as 429 and 5xx,
+including temporary "high demand" 503s, before failing over.
+
+For this test setup, leave these unset unless they are fully configured and
+funded:
+
+```env
+GEMINI_VERTEX_PROJECT=
+ANTHROPIC_API_KEY=
+```
+
+If `GEMINI_VERTEX_PROJECT` is set without valid Google Application Default
+Credentials, the router will try Vertex and fail with an ADC error. If
+`ANTHROPIC_API_KEY` is set on an account with no credits, the router will try
+Anthropic and fail with a billing error.
+
+---
+
 ## Primary Provider: Google Vertex AI (Gemini)
 
 ### 1. Provision a GCP Service Account
@@ -100,6 +131,10 @@ A passing run confirms:
 
 | Variable | Required | Description |
 |---|---|---|
+| `GEMINI_API_KEY` | Yes (Gemini Developer API) | API-key provider for Render/test deployments |
+| `GEMINI_API_BASE_URL` | No | Defaults to Google `v1beta` endpoint |
+| `GEMINI_API_MAX_RETRIES` | No | Retries transient Gemini API 429/5xx responses |
+| `GEMINI_API_RETRY_BASE_DELAY_SECONDS` | No | Base exponential retry delay |
 | `GOOGLE_APPLICATION_CREDENTIALS` | Yes (Vertex) | Path to GCP service account key JSON |
 | `GEMINI_VERTEX_PROJECT` | Yes (Vertex) | GCP project ID that has Vertex AI enabled |
 | `GEMINI_VERTEX_LOCATION` | No | Vertex AI region (default: `us-central1`) |

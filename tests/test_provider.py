@@ -151,6 +151,56 @@ async def test_gemini_api_provider_calls_generate_content_with_api_key(
 
 
 @pytest.mark.asyncio
+async def test_gemini_api_provider_retries_transient_high_demand(
+    test_settings: Settings,
+) -> None:
+    calls = 0
+
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return httpx.Response(
+                503,
+                json={
+                    "error": {
+                        "message": (
+                            "This model is currently experiencing high demand. "
+                            "Please try again later."
+                        )
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": "Recovered."}]}}]},
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    settings = test_settings.model_copy(update={"gemini_api_key": "dev-api-key"})
+    provider = GeminiAIStudioProvider(settings, client=client)
+
+    events = [
+        event
+        async for event in provider.stream(
+            [
+                ChatMessage(
+                    role="user",
+                    content=[ContentBlock(type="text", payload={"text": "Show quotes"})],
+                )
+            ],
+            [],
+            model="gemini-2.5-flash",
+            max_output_tokens=32,
+        )
+    ]
+    await client.aclose()
+
+    assert calls == 2
+    assert events == [StreamEvent(kind="text_delta", payload={"delta": "Recovered."})]
+
+
+@pytest.mark.asyncio
 async def test_gemini_api_provider_parses_function_calls(test_settings: Settings) -> None:
     async def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(

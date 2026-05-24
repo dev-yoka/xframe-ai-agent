@@ -76,6 +76,8 @@ class Settings(BaseSettings):
     allow_real_data: bool = False
     gemini_api_key: str | None = Field(default=None, repr=False)
     gemini_api_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    gemini_api_max_retries: int = 2
+    gemini_api_retry_base_delay_seconds: float = 0.25
     gemini_vertex_project: str | None = None
     gemini_vertex_location: str = "us-central1"
     gemini_aistudio_api_key: str | None = Field(default=None, repr=False)
