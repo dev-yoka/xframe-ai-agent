@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+from typing import Any
 from urllib.parse import urlparse
 
+from arq import cron
 from arq.connections import RedisSettings, create_pool
 
 from xframe_agent.agent.dispatch import execute_run
@@ -13,6 +16,8 @@ from xframe_agent.db.session import make_engine, make_session_factory
 from xframe_agent.models import AgentAttachment
 from xframe_agent.models.agent import utc_now
 from xframe_agent.settings import Settings
+
+log = logging.getLogger(__name__)
 
 
 async def run_agent_job(
@@ -44,6 +49,36 @@ async def run_agent_job(
             await execute_run(session, settings=settings, run_id=run_id, context=auth_context)
     finally:
         await engine.dispose()
+
+
+async def purge_expired_workflow_drafts(_ctx: dict[Any, Any]) -> int:
+    """Delete agent_workflow_drafts rows whose expires_at is in the past.
+
+    Scheduled to run daily at 03:15 UTC via arq cron.  Returns the number of
+    rows deleted so the result is visible in arq's job-result storage.
+    """
+
+    from sqlalchemy import text
+
+    settings = Settings()
+    engine = make_engine(settings)
+    session_factory = make_session_factory(engine)
+    try:
+        async with session_factory() as session:
+            result = await session.execute(
+                text(
+                    "DELETE FROM agent_workflow_drafts"
+                    " WHERE expires_at < CURRENT_TIMESTAMP"
+                    " RETURNING conversation_id"
+                )
+            )
+            deleted = len(result.fetchall())
+            await session.commit()
+    finally:
+        await engine.dispose()
+
+    log.info("purged expired workflow drafts", extra={"deleted_count": deleted})
+    return deleted
 
 
 async def scan_attachment_job(_ctx: dict[str, object], *, attachment_id: str) -> None:
@@ -88,6 +123,9 @@ class WorkerSettings:
 
     settings = Settings()
     functions = [run_agent_job, scan_attachment_job]
+    cron_jobs = [
+        cron(purge_expired_workflow_drafts, hour=3, minute=15, run_at_startup=False),  # type: ignore[arg-type]
+    ]
     redis_settings = redis_settings_from_url(settings.redis_url)
     queue_name = settings.arq_queue_name
     max_jobs = 4
