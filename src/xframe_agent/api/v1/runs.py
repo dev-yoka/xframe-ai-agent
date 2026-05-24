@@ -105,6 +105,8 @@ async def decide_run_tool_call(
         await session.commit()
         return {"success": True, "tool_call_status": tool_call.status}
 
+    if payload.decision == "approve" and tool_call.status == "executing":
+        return {"success": True, "tool_call_status": tool_call.status}
     if tool_call.status == "succeeded":
         return {"success": True, "tool_call_status": tool_call.status, "result": tool_call.result}
     if tool_call.status not in {"pending", "proposed", "awaiting_approval"}:
