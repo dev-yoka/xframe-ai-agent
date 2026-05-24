@@ -14,6 +14,7 @@ from xframe_agent.models.agent import (
     AgentToolCall,
     AgentUserCache,
     AgentUserMemory,
+    AgentWorkflowDraft,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "AgentToolCall",
     "AgentUserCache",
     "AgentUserMemory",
+    "AgentWorkflowDraft",
 ]

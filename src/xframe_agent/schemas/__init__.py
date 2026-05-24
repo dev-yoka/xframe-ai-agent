@@ -19,6 +19,8 @@ from xframe_agent.schemas.agent import (
     ToolListResponse,
     ToolSchema,
     VoiceTranscriptionResponse,
+    WorkflowDraftResponse,
+    WorkflowDraftSaveRequest,
 )
 
 __all__ = [
@@ -40,4 +42,6 @@ __all__ = [
     "ToolListResponse",
     "ToolSchema",
     "VoiceTranscriptionResponse",
+    "WorkflowDraftResponse",
+    "WorkflowDraftSaveRequest",
 ]

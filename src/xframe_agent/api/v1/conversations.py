@@ -1,7 +1,8 @@
-"""Conversation, message, and run control endpoints."""
+"""Conversation, message, run control, and workflow draft endpoints."""
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
@@ -13,7 +14,7 @@ from xframe_agent.agent.idempotency import get_replay, store_replay
 from xframe_agent.auth.dependencies import get_auth_context
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.db.session import get_session
-from xframe_agent.models import AgentConversation, AgentMessage, AgentRun
+from xframe_agent.models import AgentConversation, AgentMessage, AgentRun, AgentWorkflowDraft
 from xframe_agent.models.agent import utc_now
 from xframe_agent.schemas import (
     ConversationCreate,
@@ -25,6 +26,8 @@ from xframe_agent.schemas import (
     MessageResponse,
     RunCreate,
     RunCreateResponse,
+    WorkflowDraftResponse,
+    WorkflowDraftSaveRequest,
 )
 from xframe_agent.settings import Settings, get_settings
 from xframe_agent.worker import enqueue_agent_run
@@ -98,6 +101,76 @@ async def list_conversations(
         next_cursor=next_cursor,
         has_more=has_more,
     )
+
+
+@router.get("/conversations/{conversation_id}/draft", response_model=WorkflowDraftResponse)
+async def get_workflow_draft(
+    conversation_id: str,
+    session: SessionDep,
+    auth: AuthDep,
+) -> WorkflowDraftResponse:
+    conversation = await require_conversation(session, auth, conversation_id)
+    draft = await session.get(AgentWorkflowDraft, conversation.id)
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Workflow draft not found"
+        )
+    if _is_expired(draft):
+        await session.delete(draft)
+        await session.commit()
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Workflow draft expired")
+    return workflow_draft_response(draft)
+
+
+@router.post("/conversations/{conversation_id}/draft", response_model=WorkflowDraftResponse)
+async def save_workflow_draft(
+    conversation_id: str,
+    payload: WorkflowDraftSaveRequest,
+    session: SessionDep,
+    auth: AuthDep,
+) -> WorkflowDraftResponse:
+    conversation = await require_conversation(session, auth, conversation_id)
+    draft = await session.get(AgentWorkflowDraft, conversation.id)
+    now = utc_now()
+    expires_at = now + timedelta(days=7)
+    if draft is None:
+        draft = AgentWorkflowDraft(
+            conversation_id=conversation.id,
+            contract_id=payload.contract_id,
+            contract_version=payload.contract_version,
+            current_step_id=payload.current_step_id,
+            payload=dict(payload.payload),
+            step_status=dict(payload.step_status),
+            created_at=now,
+            updated_at=now,
+            expires_at=expires_at,
+        )
+        session.add(draft)
+    else:
+        draft.contract_id = payload.contract_id
+        draft.contract_version = payload.contract_version
+        draft.current_step_id = payload.current_step_id
+        draft.payload = dict(payload.payload)
+        draft.step_status = dict(payload.step_status)
+        draft.updated_at = now
+        draft.expires_at = expires_at
+    conversation.updated_at = now
+    await session.commit()
+    return workflow_draft_response(draft)
+
+
+@router.delete("/conversations/{conversation_id}/draft", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_workflow_draft(
+    conversation_id: str,
+    session: SessionDep,
+    auth: AuthDep,
+) -> None:
+    conversation = await require_conversation(session, auth, conversation_id)
+    draft = await session.get(AgentWorkflowDraft, conversation.id)
+    if draft is not None:
+        await session.delete(draft)
+        conversation.updated_at = utc_now()
+        await session.commit()
 
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationDetailResponse)
@@ -285,3 +358,24 @@ def message_response(message: AgentMessage) -> MessageResponse:
         run_id=message.run_id,
         created_at=message.created_at,
     )
+
+
+def workflow_draft_response(draft: AgentWorkflowDraft) -> WorkflowDraftResponse:
+    return WorkflowDraftResponse(
+        conversation_id=draft.conversation_id,
+        contract_id=draft.contract_id,
+        contract_version=draft.contract_version,
+        current_step_id=draft.current_step_id,
+        payload=draft.payload,
+        step_status=draft.step_status,
+        created_at=draft.created_at,
+        updated_at=draft.updated_at,
+        expires_at=draft.expires_at,
+    )
+
+
+def _is_expired(draft: AgentWorkflowDraft) -> bool:
+    expires_at = draft.expires_at
+    if expires_at.tzinfo is None:
+        return expires_at < utc_now().replace(tzinfo=None)
+    return expires_at < utc_now()

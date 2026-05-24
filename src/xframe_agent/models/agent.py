@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import (
@@ -52,6 +52,35 @@ class AgentConversation(Base):
         back_populates="conversation",
         cascade="all, delete-orphan",
     )
+    workflow_draft: Mapped[AgentWorkflowDraft | None] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+    )
+
+
+class AgentWorkflowDraft(Base):
+    """Auto-saved workflow wizard state for one conversation."""
+
+    __tablename__ = "agent_workflow_drafts"
+    __table_args__ = (Index("idx_agent_workflow_drafts_expires", "expires_at"),)
+
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("agent_conversations.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    contract_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    contract_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    current_step_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    step_status: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: utc_now() + timedelta(days=7),
+    )
+
+    conversation: Mapped[AgentConversation] = relationship(back_populates="workflow_draft")
 
 
 class AgentMessage(Base):

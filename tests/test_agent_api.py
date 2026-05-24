@@ -142,3 +142,49 @@ async def test_send_message_returns_actual_run_status(
 
     assert message_response.status_code == 200
     assert message_response.json()["status"] == "error"
+
+
+async def test_workflow_draft_create_get_delete(agent_client: AsyncClient) -> None:
+    create_response = await agent_client.post(
+        "/api/v1/agent/conversations",
+        headers={"Idempotency-Key": "draft-conversation"},
+        json={"title": "Draft workflow", "kind": "create_pricing_request"},
+    )
+    assert create_response.status_code == 201
+    conversation_id = create_response.json()["id"]
+
+    missing_response = await agent_client.get(
+        f"/api/v1/agent/conversations/{conversation_id}/draft"
+    )
+    assert missing_response.status_code == 404
+
+    save_response = await agent_client.post(
+        f"/api/v1/agent/conversations/{conversation_id}/draft",
+        json={
+            "contract_id": "create_pricing_request",
+            "contract_version": "v1",
+            "current_step_id": "summary",
+            "payload": {"summary": {"opportunity_name": "MEA expansion"}},
+            "step_status": {"summary": "active", "setup_fee": "pending"},
+        },
+    )
+    assert save_response.status_code == 200
+    saved = save_response.json()
+    assert saved["conversation_id"] == conversation_id
+    assert saved["payload"]["summary"]["opportunity_name"] == "MEA expansion"
+    assert saved["step_status"]["summary"] == "active"
+    assert saved["expires_at"] is not None
+
+    get_response = await agent_client.get(f"/api/v1/agent/conversations/{conversation_id}/draft")
+    assert get_response.status_code == 200
+    assert get_response.json()["payload"] == saved["payload"]
+
+    delete_response = await agent_client.delete(
+        f"/api/v1/agent/conversations/{conversation_id}/draft"
+    )
+    assert delete_response.status_code == 204
+
+    deleted_response = await agent_client.get(
+        f"/api/v1/agent/conversations/{conversation_id}/draft"
+    )
+    assert deleted_response.status_code == 404

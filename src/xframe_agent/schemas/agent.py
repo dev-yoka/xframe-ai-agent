@@ -54,6 +54,21 @@ class ConversationDetailResponse(ConversationResponse):
     messages: list[MessageResponse]
 
 
+class WorkflowDraftSaveRequest(BaseModel):
+    contract_id: str = Field(min_length=1, max_length=128)
+    contract_version: str = Field(min_length=1, max_length=32)
+    current_step_id: str = Field(min_length=1, max_length=64)
+    payload: dict[str, object] = Field(default_factory=dict)
+    step_status: dict[str, object] = Field(default_factory=dict)
+
+
+class WorkflowDraftResponse(WorkflowDraftSaveRequest):
+    conversation_id: str
+    created_at: datetime
+    updated_at: datetime
+    expires_at: datetime
+
+
 class RunCreate(BaseModel):
     content: str = Field(min_length=1)
     source: Literal["text", "voice", "attachment"] = "text"
