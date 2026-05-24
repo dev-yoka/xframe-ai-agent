@@ -1,0 +1,305 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "const": "create_pricing_request"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "setup_fee",
+              "pricing",
+              "pnl",
+              "quoting_summary",
+              "legal",
+              "approvals"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "approval_mode": {
+            "type": "string",
+            "enum": [
+              "per_tab",
+              "batch_at_submit"
+            ]
+          },
+          "prerequisites": {
+            "type": "object",
+            "properties": {
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "summary",
+                    "setup_fee",
+                    "pricing",
+                    "pnl",
+                    "quoting_summary",
+                    "legal",
+                    "approvals"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "steps"
+            ],
+            "additionalProperties": false
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "string",
+                    "number",
+                    "currency",
+                    "percentage",
+                    "enum",
+                    "multi_enum",
+                    "boolean",
+                    "date"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "enum_options": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "value",
+                      "label"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "validation": {
+                  "type": "object",
+                  "properties": {
+                    "min": {
+                      "type": "number"
+                    },
+                    "max": {
+                      "type": "number"
+                    },
+                    "pattern": {
+                      "type": "string"
+                    },
+                    "decimals": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "dependsOn": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "suggestion": {
+                  "type": "object",
+                  "properties": {
+                    "mode": {
+                      "type": "string",
+                      "enum": [
+                        "proactive",
+                        "reactive",
+                        "silent"
+                      ]
+                    },
+                    "sources": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "historical",
+                          "market"
+                        ]
+                      }
+                    },
+                    "historical": {
+                      "type": "object",
+                      "properties": {
+                        "aggregation": {
+                          "type": "string",
+                          "enum": [
+                            "median",
+                            "mean",
+                            "mode",
+                            "p75"
+                          ]
+                        },
+                        "filter_keys": {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "corridor",
+                              "service",
+                              "customer_segment",
+                              "payer",
+                              "payout_currency",
+                              "transaction_type"
+                            ]
+                          }
+                        },
+                        "min_sample_size": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "aggregation",
+                        "filter_keys",
+                        "min_sample_size"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "market": {
+                      "type": "object",
+                      "properties": {
+                        "research_query_template": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "max_age_seconds": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "research_query_template",
+                        "max_age_seconds"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "confidence_threshold": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    }
+                  },
+                  "required": [
+                    "mode",
+                    "sources"
+                  ],
+                  "additionalProperties": false
+                },
+                "ui": {
+                  "type": "object",
+                  "properties": {
+                    "hint": {
+                      "type": "string"
+                    },
+                    "placeholder": {
+                      "type": "string"
+                    },
+                    "group": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "id",
+                "label",
+                "type",
+                "required"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "on_complete": {
+            "type": "object",
+            "properties": {
+              "tool": {
+                "type": "string",
+                "minLength": 1
+              },
+              "args_template": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              }
+            },
+            "required": [
+              "tool",
+              "args_template"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "description",
+          "approval_mode",
+          "fields"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "title",
+    "steps"
+  ],
+  "additionalProperties": false
+}

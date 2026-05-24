@@ -1,0 +1,184 @@
+{
+  "id": "create_pricing_request",
+  "version": "v1",
+  "title": "Create a pricing request",
+  "steps": [
+    {
+      "id": "summary",
+      "title": "Summary",
+      "description": "Identify the opportunity, customer, and corridor scope.",
+      "approval_mode": "batch_at_submit",
+      "fields": [
+        {
+          "id": "opportunity_name",
+          "label": "Opportunity name",
+          "type": "string",
+          "required": true,
+          "validation": {
+            "pattern": "^.{3,120}$"
+          },
+          "ui": {
+            "placeholder": "e.g. Acme MEA expansion Q3"
+          }
+        },
+        {
+          "id": "opportunity_type",
+          "label": "Opportunity type",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "new_business",
+              "label": "New business"
+            },
+            {
+              "value": "renewal",
+              "label": "Renewal"
+            },
+            {
+              "value": "expansion",
+              "label": "Expansion"
+            }
+          ]
+        },
+        {
+          "id": "base_currency",
+          "label": "Base currency",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "USD",
+              "label": "USD"
+            },
+            {
+              "value": "EUR",
+              "label": "EUR"
+            },
+            {
+              "value": "GBP",
+              "label": "GBP"
+            }
+          ]
+        },
+        {
+          "id": "regions",
+          "label": "Regions",
+          "type": "multi_enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "MEA",
+              "label": "Middle East & Africa"
+            },
+            {
+              "value": "APAC",
+              "label": "Asia Pacific"
+            },
+            {
+              "value": "LATAM",
+              "label": "Latin America"
+            },
+            {
+              "value": "EUR",
+              "label": "Europe"
+            },
+            {
+              "value": "NA",
+              "label": "North America"
+            }
+          ]
+        },
+        {
+          "id": "payout_countries",
+          "label": "Payout countries",
+          "type": "multi_enum",
+          "required": true,
+          "enum_options": [],
+          "ui": {
+            "hint": "Select at least one country per region."
+          }
+        }
+      ]
+    },
+    {
+      "id": "setup_fee",
+      "title": "Setup fee",
+      "description": "Configure platform and optional setup fees.",
+      "approval_mode": "per_tab",
+      "prerequisites": {
+        "steps": [
+          "summary"
+        ]
+      },
+      "fields": []
+    },
+    {
+      "id": "pricing",
+      "title": "Pricing",
+      "description": "Set corridor rates, FX spreads, and tiers.",
+      "approval_mode": "per_tab",
+      "prerequisites": {
+        "steps": [
+          "summary",
+          "setup_fee"
+        ]
+      },
+      "fields": []
+    },
+    {
+      "id": "pnl",
+      "title": "P&L",
+      "description": "Review the profit and loss projection.",
+      "approval_mode": "per_tab",
+      "prerequisites": {
+        "steps": [
+          "pricing"
+        ]
+      },
+      "fields": []
+    },
+    {
+      "id": "quoting_summary",
+      "title": "Quoting summary",
+      "description": "Review the customer-facing quote.",
+      "approval_mode": "batch_at_submit",
+      "prerequisites": {
+        "steps": [
+          "pnl"
+        ]
+      },
+      "fields": []
+    },
+    {
+      "id": "legal",
+      "title": "Legal",
+      "description": "Confirm terms and legal acceptance.",
+      "approval_mode": "batch_at_submit",
+      "prerequisites": {
+        "steps": [
+          "quoting_summary"
+        ]
+      },
+      "fields": []
+    },
+    {
+      "id": "approvals",
+      "title": "Approvals",
+      "description": "Submit for internal approval. This is the submit gate.",
+      "approval_mode": "per_tab",
+      "prerequisites": {
+        "steps": [
+          "legal"
+        ]
+      },
+      "fields": [],
+      "on_complete": {
+        "tool": "submit_for_approval",
+        "args_template": {
+          "quote_payload": "{{draft.full_payload}}"
+        }
+      }
+    }
+  ]
+}

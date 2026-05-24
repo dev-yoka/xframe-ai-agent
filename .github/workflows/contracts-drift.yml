@@ -1,0 +1,37 @@
+name: contracts-drift
+
+on:
+  pull_request:
+  push:
+    branches: [main, "phase-D/**", "phase-E/**"]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout xframe-ai-agent
+        uses: actions/checkout@v4
+        with:
+          path: xframe-ai-agent
+
+      - name: Checkout PriceFRAME
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/PriceFRAME
+          path: PriceFRAME
+          ref: xFRAME_v1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        working-directory: xframe-ai-agent
+        run: uv sync --extra dev
+
+      - name: Verify contracts in sync
+        working-directory: xframe-ai-agent
+        env:
+          PRICEFRAME_SHARED_DIR: ${{ github.workspace }}/PriceFRAME/shared
+        run: ./scripts/sync_contracts.sh --check

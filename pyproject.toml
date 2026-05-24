@@ -87,5 +87,6 @@ filterwarnings = [
 [dependency-groups]
 dev = [
   "aiosqlite>=0.22.1",
+  "datamodel-code-generator[http]>=0.26.0",
   "xframe-ai-agent[dev]",
 ]
