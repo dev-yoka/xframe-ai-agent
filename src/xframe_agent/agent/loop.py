@@ -21,9 +21,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from xframe_agent.agent.budget import BudgetExceededError, LoopBudget
 from xframe_agent.agent.events import append_run_event
+from xframe_agent.agent.guided_workflows import (
+    CREATE_PRICING_REQUEST_WORKFLOW,
+    create_pricing_request_input_payload,
+    create_pricing_request_step_entered_payload,
+    is_generic_create_pricing_request,
+)
 from xframe_agent.agent.redaction import redact
 from xframe_agent.auth.jwt import AuthContext
-from xframe_agent.models import AgentMessage, AgentRun, AgentRunStep, AgentToolCall, AgentUserMemory
+from xframe_agent.models import (
+    AgentConversation,
+    AgentMessage,
+    AgentRun,
+    AgentRunStep,
+    AgentToolCall,
+    AgentUserMemory,
+)
 from xframe_agent.models.agent import utc_now
 from xframe_agent.observability.metrics import observe_run_latency, observe_step_count
 from xframe_agent.settings import Settings, get_settings
@@ -68,8 +81,19 @@ class AgentLoop:
 
         user_message = await self._input_message(session, run)
         redacted = redact(user_message.content)
+        conversation = await session.get(AgentConversation, run.conversation_id)
+        is_create_pricing_wizard = (
+            conversation is not None
+            and conversation.kind == CREATE_PRICING_REQUEST_WORKFLOW
+            and is_generic_create_pricing_request(redacted.text)
+        )
         proposal = self._build_tool_proposal(redacted.text, context)
-        assistant_text = self._deterministic_response(redacted.text, context, proposal)
+        assistant_text = (
+            "Let's set up the pricing request. I filled the basics so you can adjust "
+            "only what matters."
+            if is_create_pricing_wizard
+            else self._deterministic_response(redacted.text, context, proposal)
+        )
         assistant_message = AgentMessage(
             conversation_id=run.conversation_id,
             user_id=context.user_id,
@@ -100,6 +124,34 @@ class AgentLoop:
             content=redacted.text,
             context=context,
         )
+
+        if is_create_pricing_wizard:
+            run.output_message_id = assistant_message.id
+            run.status = "completed"
+            run.completed_at = utc_now()
+            run.updated_at = utc_now()
+            await append_run_event(
+                session,
+                run_id=run.id,
+                event_type="v1.workflow.step.entered",
+                payload=create_pricing_request_step_entered_payload(),
+            )
+            await append_run_event(
+                session,
+                run_id=run.id,
+                event_type="v1.input.requested",
+                payload=create_pricing_request_input_payload(),
+            )
+            await append_run_event(
+                session,
+                run_id=run.id,
+                event_type="v1.run.completed",
+                payload={"workflow": CREATE_PRICING_REQUEST_WORKFLOW},
+            )
+            observe_step_count(budget.steps)
+            observe_run_latency(model="deterministic-phase-f", seconds=perf_counter() - started)
+            await session.commit()
+            return run
 
         if proposal is not None:
             try:

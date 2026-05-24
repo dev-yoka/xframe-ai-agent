@@ -188,3 +188,32 @@ async def test_workflow_draft_create_get_delete(agent_client: AsyncClient) -> No
         f"/api/v1/agent/conversations/{conversation_id}/draft"
     )
     assert deleted_response.status_code == 404
+
+
+async def test_create_pricing_request_emits_workflow_step_event(agent_client: AsyncClient) -> None:
+    create_response = await agent_client.post(
+        "/api/v1/agent/conversations",
+        headers={"Idempotency-Key": "workflow-step-conversation"},
+        json={"title": "Wizard", "kind": "create_pricing_request"},
+    )
+    assert create_response.status_code == 201
+    conversation_id = create_response.json()["id"]
+
+    run_response = await agent_client.post(
+        f"/api/v1/agent/conversations/{conversation_id}/runs",
+        headers={"Idempotency-Key": "workflow-step-run"},
+        json={"content": "Create a pricing request", "source": "text"},
+    )
+    assert run_response.status_code == 202
+    run_id = run_response.json()["run_id"]
+
+    stream_response = await agent_client.get(f"/api/v1/agent/runs/{run_id}/stream")
+    assert stream_response.status_code == 200
+    stream_text = stream_response.text
+    assert "event: v1.workflow.step.entered" in stream_text
+    assert '"contract_id":"create_pricing_request"' in stream_text
+    assert '"contract_version":"v1"' in stream_text
+    assert '"step_id":"summary"' in stream_text
+    assert '"step_index":0' in stream_text
+    assert '"total_steps":7' in stream_text
+    assert "event: v1.input.requested" in stream_text

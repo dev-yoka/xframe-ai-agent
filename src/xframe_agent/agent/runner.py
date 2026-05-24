@@ -26,6 +26,7 @@ from xframe_agent.agent.budget import BudgetExceededError, LoopBudget
 from xframe_agent.agent.events import append_run_event
 from xframe_agent.agent.guided_workflows import (
     create_pricing_request_input_payload,
+    create_pricing_request_step_entered_payload,
     is_generic_create_pricing_request,
     latest_user_text,
     parse_create_pricing_request_submission,
@@ -305,6 +306,12 @@ class ModelRunner:
             run_id=run.id,
             event_type="v1.message.delta",
             payload={"message_id": msg.id, "delta": assistant_text},
+        )
+        await append_run_event(
+            session,
+            run_id=run.id,
+            event_type="v1.workflow.step.entered",
+            payload=create_pricing_request_step_entered_payload(),
         )
         await append_run_event(
             session,

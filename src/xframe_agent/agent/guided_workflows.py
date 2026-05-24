@@ -10,6 +10,9 @@ from xframe_agent.models.agent import utc_now
 from xframe_agent.provider.base import ChatMessage
 
 CREATE_PRICING_REQUEST_WORKFLOW = "create_pricing_request"
+CREATE_PRICING_REQUEST_CONTRACT_VERSION = "v1"
+CREATE_PRICING_REQUEST_INITIAL_STEP = "summary"
+CREATE_PRICING_REQUEST_TOTAL_STEPS = 7
 WORKFLOW_SUBMISSION_PREFIX = f"workflow:{CREATE_PRICING_REQUEST_WORKFLOW}"
 
 _GENERIC_CREATE_REQUESTS = {
@@ -51,6 +54,11 @@ def create_pricing_request_input_payload() -> dict[str, Any]:
     today = utc_now().date().isoformat()
     return {
         "workflow": CREATE_PRICING_REQUEST_WORKFLOW,
+        "contract_id": CREATE_PRICING_REQUEST_WORKFLOW,
+        "contract_version": CREATE_PRICING_REQUEST_CONTRACT_VERSION,
+        "step_id": CREATE_PRICING_REQUEST_INITIAL_STEP,
+        "step_index": 0,
+        "total_steps": CREATE_PRICING_REQUEST_TOTAL_STEPS,
         "title": "Create pricing request",
         "description": "Confirm the basics. Defaults are prefilled so you can continue quickly.",
         "submit_label": "Create draft proposal",
@@ -100,6 +108,19 @@ def create_pricing_request_input_payload() -> dict[str, Any]:
                 "depends_on": ["regions"],
             },
         ],
+    }
+
+
+def create_pricing_request_step_entered_payload() -> dict[str, Any]:
+    """Build the workflow navigation event consumed by guided chat clients."""
+
+    return {
+        "workflow": CREATE_PRICING_REQUEST_WORKFLOW,
+        "contract_id": CREATE_PRICING_REQUEST_WORKFLOW,
+        "contract_version": CREATE_PRICING_REQUEST_CONTRACT_VERSION,
+        "step_id": CREATE_PRICING_REQUEST_INITIAL_STEP,
+        "step_index": 0,
+        "total_steps": CREATE_PRICING_REQUEST_TOTAL_STEPS,
     }
 
 
