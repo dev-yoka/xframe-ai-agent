@@ -1259,6 +1259,7 @@
       "on_complete": {
         "tool": "preview_pricing_change",
         "args_template": {
+          "quote_id": "{{draft.created_quote_id}}",
           "payload": "{{draft.pricing}}"
         }
       }
