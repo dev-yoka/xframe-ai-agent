@@ -6,19 +6,20 @@
     {
       "id": "summary",
       "title": "Summary",
-      "description": "Identify the opportunity, customer, and corridor scope.",
+      "description": "Capture the opportunity, technical pricing model, and corridor scope.",
       "approval_mode": "batch_at_submit",
       "fields": [
         {
-          "id": "opportunity_name",
-          "label": "Opportunity name",
+          "id": "sending_partner_name",
+          "label": "Sending Partner Name",
           "type": "string",
           "required": true,
           "validation": {
             "pattern": "^.{3,120}$"
           },
           "ui": {
-            "placeholder": "e.g. Acme MEA expansion Q3"
+            "placeholder": "e.g. Acme MEA expansion",
+            "group": "Quoting Details"
           }
         },
         {
@@ -28,22 +29,395 @@
           "required": true,
           "enum_options": [
             {
-              "value": "new_business",
-              "label": "New business"
+              "value": "New partner",
+              "label": "New partner"
             },
             {
-              "value": "renewal",
-              "label": "Renewal"
+              "value": "Pricing Change",
+              "label": "Pricing Change"
             },
             {
-              "value": "expansion",
-              "label": "Expansion"
+              "value": "Upsell",
+              "label": "Upsell"
             }
-          ]
+          ],
+          "ui": {
+            "group": "Quoting Details"
+          }
         },
         {
-          "id": "base_currency",
-          "label": "Base currency",
+          "id": "use_cases",
+          "label": "Use Cases",
+          "type": "multi_enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "Accept and Pay",
+              "label": "Accept and Pay"
+            },
+            {
+              "value": "Accept APM's",
+              "label": "Accept APM's"
+            },
+            {
+              "value": "Pay Business payments",
+              "label": "Pay Business payments"
+            },
+            {
+              "value": "Mass Payout",
+              "label": "Mass Payout"
+            },
+            {
+              "value": "Me2Me account top up",
+              "label": "Me2Me account top up"
+            },
+            {
+              "value": "Remittance",
+              "label": "Remittance"
+            },
+            {
+              "value": "Virtual account",
+              "label": "Virtual account"
+            },
+            {
+              "value": "Global Accounts",
+              "label": "Global Accounts"
+            },
+            {
+              "value": "QR code payments",
+              "label": "QR code payments"
+            },
+            {
+              "value": "Accept Business payments",
+              "label": "Accept Business payments"
+            },
+            {
+              "value": "Account Top-Up",
+              "label": "Account Top-Up"
+            },
+            {
+              "value": "Last Mile Payout",
+              "label": "Last Mile Payout"
+            },
+            {
+              "value": "Gambling account top up",
+              "label": "Gambling account top up"
+            },
+            {
+              "value": "Gambling account withdrawl",
+              "label": "Gambling account withdrawl"
+            },
+            {
+              "value": "Insurance payouts",
+              "label": "Insurance payouts"
+            },
+            {
+              "value": "Other",
+              "label": "Other"
+            }
+          ],
+          "ui": {
+            "group": "Quoting Details"
+          }
+        },
+        {
+          "id": "opportunity_owner",
+          "label": "Opportunity Owner",
+          "type": "string",
+          "required": false,
+          "ui": {
+            "placeholder": "Owner name or email",
+            "group": "Quoting Details"
+          }
+        },
+        {
+          "id": "sending_partner_region",
+          "label": "Sending Partner Region",
+          "type": "enum",
+          "required": true,
+          "options_source": {
+            "type": "priceframe_api",
+            "endpoint": "/api/v1/corridors/active/filters",
+            "value_path": "geographicalRegions",
+            "label_path": "geographicalRegions",
+            "cache_ttl_seconds": 300
+          },
+          "ui": {
+            "group": "Quoting Details"
+          }
+        },
+        {
+          "id": "sending_partner_country",
+          "label": "Sending Partner Country",
+          "type": "enum",
+          "required": true,
+          "options_source": {
+            "type": "priceframe_api",
+            "endpoint": "/api/v1/corridors/active/filters",
+            "value_path": "countries",
+            "label_path": "countries",
+            "depends_on": [
+              "sending_partner_region"
+            ],
+            "cache_ttl_seconds": 300
+          },
+          "ui": {
+            "group": "Quoting Details"
+          }
+        },
+        {
+          "id": "contract_length_years",
+          "label": "Contract Length (years)",
+          "type": "number",
+          "required": true,
+          "validation": {
+            "min": 1,
+            "max": 5,
+            "decimals": 0
+          },
+          "ui": {
+            "group": "Quoting Details"
+          }
+        },
+        {
+          "id": "waived_months",
+          "label": "Waived Months (Commitment fee)",
+          "type": "number",
+          "required": true,
+          "validation": {
+            "min": 0,
+            "max": 24,
+            "decimals": 0
+          },
+          "ui": {
+            "group": "Quoting Details"
+          }
+        },
+        {
+          "id": "pr_code",
+          "label": "PR Code",
+          "type": "string",
+          "required": false,
+          "ui": {
+            "placeholder": "e.g. PR-2026-1131",
+            "group": "Quoting Details"
+          }
+        },
+        {
+          "id": "show_fx_source_in_contract",
+          "label": "Show FX Source in contract",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "YES",
+              "label": "YES"
+            },
+            {
+              "value": "NO",
+              "label": "NO"
+            }
+          ],
+          "ui": {
+            "group": "Quoting Details"
+          }
+        },
+        {
+          "id": "show_fx_spread_in_contract",
+          "label": "Show FX Spread in contract",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "YES",
+              "label": "YES"
+            },
+            {
+              "value": "NO",
+              "label": "NO"
+            }
+          ],
+          "ui": {
+            "group": "Quoting Details"
+          }
+        },
+        {
+          "id": "integration_type",
+          "label": "Integration Type",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "New API Integration",
+              "label": "New API Integration"
+            },
+            {
+              "value": "Transfers with Thunes Business Hub",
+              "label": "Transfers with Thunes Business Hub"
+            },
+            {
+              "value": "Middleware Integration",
+              "label": "Middleware Integration"
+            },
+            {
+              "value": "New Vertical & Corridor",
+              "label": "New Vertical & Corridor"
+            },
+            {
+              "value": "New Corridor",
+              "label": "New Corridor"
+            }
+          ],
+          "ui": {
+            "group": "Technical Pricing Details"
+          }
+        },
+        {
+          "id": "fx_model",
+          "label": "FX Model",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "Traditional FX",
+              "label": "Traditional FX"
+            },
+            {
+              "value": "Trading Desk",
+              "label": "Trading Desk"
+            },
+            {
+              "value": "Both Models",
+              "label": "Both Models"
+            }
+          ],
+          "ui": {
+            "group": "Technical Pricing Details"
+          }
+        },
+        {
+          "id": "pricing_strategy",
+          "label": "Pricing Strategy",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "Corridor Pricing",
+              "label": "Corridor Pricing"
+            }
+          ],
+          "ui": {
+            "group": "Technical Pricing Details"
+          }
+        },
+        {
+          "id": "fx_pricing",
+          "label": "FX Pricing",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "FX Spread",
+              "label": "FX Spread"
+            },
+            {
+              "value": "Revenue Share",
+              "label": "Revenue Share"
+            }
+          ],
+          "ui": {
+            "group": "Technical Pricing Details"
+          }
+        },
+        {
+          "id": "quantity_funding_currencies",
+          "label": "Quantity Funding Currencies",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "1",
+              "label": "1"
+            },
+            {
+              "value": "2",
+              "label": "2"
+            }
+          ],
+          "ui": {
+            "group": "Technical Pricing Details"
+          }
+        },
+        {
+          "id": "funding_currencies",
+          "label": "Funding Currency",
+          "type": "multi_enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "USD",
+              "label": "USD"
+            },
+            {
+              "value": "EUR",
+              "label": "EUR"
+            },
+            {
+              "value": "GBP",
+              "label": "GBP"
+            },
+            {
+              "value": "AUD",
+              "label": "AUD"
+            },
+            {
+              "value": "CAD",
+              "label": "CAD"
+            },
+            {
+              "value": "CNY",
+              "label": "CNY"
+            },
+            {
+              "value": "HKD",
+              "label": "HKD"
+            },
+            {
+              "value": "SGD",
+              "label": "SGD"
+            },
+            {
+              "value": "MXN",
+              "label": "MXN"
+            },
+            {
+              "value": "XOF",
+              "label": "XOF"
+            },
+            {
+              "value": "XAF",
+              "label": "XAF"
+            },
+            {
+              "value": "SAR",
+              "label": "SAR"
+            },
+            {
+              "value": "PHP",
+              "label": "PHP"
+            },
+            {
+              "value": "IDR",
+              "label": "IDR"
+            }
+          ],
+          "ui": {
+            "group": "Technical Pricing Details"
+          }
+        },
+        {
+          "id": "source_currency",
+          "label": "Source Currency",
           "type": "enum",
           "required": true,
           "enum_options": [
@@ -58,40 +432,161 @@
             {
               "value": "GBP",
               "label": "GBP"
+            },
+            {
+              "value": "AUD",
+              "label": "AUD"
+            },
+            {
+              "value": "CAD",
+              "label": "CAD"
+            },
+            {
+              "value": "CNY",
+              "label": "CNY"
+            },
+            {
+              "value": "HKD",
+              "label": "HKD"
+            },
+            {
+              "value": "SGD",
+              "label": "SGD"
+            },
+            {
+              "value": "MXN",
+              "label": "MXN"
+            },
+            {
+              "value": "XOF",
+              "label": "XOF"
+            },
+            {
+              "value": "XAF",
+              "label": "XAF"
+            },
+            {
+              "value": "SAR",
+              "label": "SAR"
+            },
+            {
+              "value": "PHP",
+              "label": "PHP"
+            },
+            {
+              "value": "IDR",
+              "label": "IDR"
             }
-          ]
+          ],
+          "ui": {
+            "group": "Technical Pricing Details"
+          }
         },
         {
-          "id": "regions",
-          "label": "Regions",
-          "type": "multi_enum",
+          "id": "quantity_source_currencies",
+          "label": "Quantity Source Currencies",
+          "type": "enum",
           "required": true,
           "enum_options": [
             {
-              "value": "MEA",
-              "label": "Middle East & Africa"
+              "value": "1",
+              "label": "1"
             },
             {
-              "value": "APAC",
-              "label": "Asia Pacific"
-            },
+              "value": "2",
+              "label": "2"
+            }
+          ],
+          "ui": {
+            "group": "Technical Pricing Details"
+          }
+        },
+        {
+          "id": "default_fee_currency",
+          "label": "Default Fee Currency",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
             {
-              "value": "LATAM",
-              "label": "Latin America"
+              "value": "USD",
+              "label": "USD"
             },
             {
               "value": "EUR",
-              "label": "Europe"
+              "label": "EUR"
             },
             {
-              "value": "NA",
-              "label": "North America"
+              "value": "GBP",
+              "label": "GBP"
+            },
+            {
+              "value": "AUD",
+              "label": "AUD"
+            },
+            {
+              "value": "CAD",
+              "label": "CAD"
+            },
+            {
+              "value": "CNY",
+              "label": "CNY"
+            },
+            {
+              "value": "HKD",
+              "label": "HKD"
+            },
+            {
+              "value": "SGD",
+              "label": "SGD"
+            },
+            {
+              "value": "MXN",
+              "label": "MXN"
+            },
+            {
+              "value": "XOF",
+              "label": "XOF"
+            },
+            {
+              "value": "XAF",
+              "label": "XAF"
+            },
+            {
+              "value": "SAR",
+              "label": "SAR"
+            },
+            {
+              "value": "PHP",
+              "label": "PHP"
+            },
+            {
+              "value": "IDR",
+              "label": "IDR"
             }
-          ]
+          ],
+          "ui": {
+            "group": "Technical Pricing Details"
+          }
         },
         {
-          "id": "payout_countries",
-          "label": "Payout countries",
+          "id": "corridor_regions",
+          "label": "Geographical Region",
+          "type": "multi_enum",
+          "required": true,
+          "options_source": {
+            "type": "priceframe_api",
+            "endpoint": "/api/v1/corridors/active/filters",
+            "value_path": "geographicalRegions",
+            "label_path": "geographicalRegions",
+            "cache_ttl_seconds": 300
+          },
+          "ui": {
+            "group": "Corridors to Offer"
+          }
+        },
+        {
+          "id": "corridor_countries",
+          "label": "Country",
           "type": "multi_enum",
           "required": true,
           "options_source": {
@@ -100,32 +595,428 @@
             "value_path": "countries",
             "label_path": "countries",
             "depends_on": [
-              "regions"
+              "corridor_regions"
             ],
             "cache_ttl_seconds": 300
           },
           "ui": {
-            "hint": "Select at least one country per region."
+            "group": "Corridors to Offer"
+          }
+        },
+        {
+          "id": "corridor_services",
+          "label": "Service",
+          "type": "multi_enum",
+          "required": false,
+          "options_source": {
+            "type": "priceframe_api",
+            "endpoint": "/api/v1/corridors/active/filters",
+            "value_path": "services",
+            "label_path": "services",
+            "depends_on": [
+              "corridor_countries"
+            ],
+            "cache_ttl_seconds": 300
+          },
+          "ui": {
+            "group": "Corridors to Offer"
+          }
+        },
+        {
+          "id": "transaction_types",
+          "label": "Transaction Type",
+          "type": "multi_enum",
+          "required": false,
+          "options_source": {
+            "type": "priceframe_api",
+            "endpoint": "/api/v1/corridors/active/filters",
+            "value_path": "transactionTypes",
+            "label_path": "transactionTypes",
+            "cache_ttl_seconds": 300
+          },
+          "ui": {
+            "group": "Corridors to Offer"
+          }
+        },
+        {
+          "id": "payout_currencies",
+          "label": "Payout Currency",
+          "type": "multi_enum",
+          "required": false,
+          "options_source": {
+            "type": "priceframe_api",
+            "endpoint": "/api/v1/corridors/active/filters",
+            "value_path": "payoutCurrencies",
+            "label_path": "payoutCurrencies",
+            "depends_on": [
+              "corridor_countries"
+            ],
+            "cache_ttl_seconds": 300
+          },
+          "ui": {
+            "group": "Corridors to Offer"
+          }
+        },
+        {
+          "id": "payers",
+          "label": "Payer",
+          "type": "multi_enum",
+          "required": false,
+          "options_source": {
+            "type": "priceframe_api",
+            "endpoint": "/api/v1/corridors/active/filters",
+            "value_path": "payers",
+            "label_path": "payers",
+            "depends_on": [
+              "corridor_countries"
+            ],
+            "cache_ttl_seconds": 300
+          },
+          "ui": {
+            "group": "Corridors to Offer"
+          }
+        },
+        {
+          "id": "hide_usd_swift_payer",
+          "label": "Hide USD via SWIFT Wire Transfer",
+          "type": "boolean",
+          "required": false,
+          "ui": {
+            "group": "Corridors to Offer"
           }
         }
-      ]
+      ],
+      "on_complete": {
+        "tool": "create_quotation",
+        "args_template": {
+          "name": "{{field:summary.sending_partner_name}}",
+          "opportunity_type": "{{field:summary.opportunity_type}}",
+          "currency": "{{field:summary.default_fee_currency}}",
+          "regions": "{{field:summary.corridor_regions}}",
+          "countries": "{{field:summary.corridor_countries}}"
+        }
+      }
     },
     {
       "id": "setup_fee",
       "title": "Setup fee",
-      "description": "Configure platform and optional setup fees.",
+      "description": "Configure setup price, commitment fee, and other monthly fees.",
       "approval_mode": "per_tab",
       "prerequisites": {
         "steps": [
           "summary"
         ]
       },
-      "fields": []
+      "fields": [
+        {
+          "id": "fee_type",
+          "label": "Fee Type",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "Setup Fee",
+              "label": "Setup Fee"
+            },
+            {
+              "value": "Network Joining Fee",
+              "label": "Network Joining Fee"
+            }
+          ]
+        },
+        {
+          "id": "payment_schedule",
+          "label": "Payment Schedule",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "100% on signature",
+              "label": "100% on signature"
+            },
+            {
+              "value": "50% on signature / 50% on go-live",
+              "label": "50% on signature / 50% on go-live"
+            },
+            {
+              "value": "Custom",
+              "label": "Custom"
+            }
+          ]
+        },
+        {
+          "id": "standard_commitment_fee",
+          "label": "Monthly Commitment Fee",
+          "type": "currency",
+          "required": true,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          },
+          "suggestion": {
+            "mode": "proactive",
+            "sources": [
+              "historical"
+            ],
+            "historical": {
+              "aggregation": "median",
+              "filter_keys": [
+                "customer_segment"
+              ],
+              "min_sample_size": 3
+            },
+            "confidence_threshold": 0.55
+          }
+        },
+        {
+          "id": "waived_months",
+          "label": "Waived Months",
+          "type": "number",
+          "required": true,
+          "validation": {
+            "min": 0,
+            "max": 6,
+            "decimals": 0
+          }
+        },
+        {
+          "id": "quoted_setup_price",
+          "label": "Quoting Price",
+          "type": "currency",
+          "required": true,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          },
+          "suggestion": {
+            "mode": "proactive",
+            "sources": [
+              "historical"
+            ],
+            "historical": {
+              "aggregation": "median",
+              "filter_keys": [
+                "customer_segment"
+              ],
+              "min_sample_size": 3
+            },
+            "confidence_threshold": 0.55
+          }
+        },
+        {
+          "id": "service_request_fee_reversal",
+          "label": "Service Request Fee (Reversal Request)",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          },
+          "suggestion": {
+            "mode": "proactive",
+            "sources": [
+              "historical"
+            ],
+            "historical": {
+              "aggregation": "median",
+              "filter_keys": [
+                "customer_segment"
+              ],
+              "min_sample_size": 3
+            },
+            "confidence_threshold": 0.55
+          }
+        },
+        {
+          "id": "service_request_fee_proof",
+          "label": "Service Request Fee (Proof of payment)",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "emergency_funding_fee",
+          "label": "Emergency Funding Fee",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          },
+          "suggestion": {
+            "mode": "proactive",
+            "sources": [
+              "historical"
+            ],
+            "historical": {
+              "aggregation": "median",
+              "filter_keys": [
+                "customer_segment"
+              ],
+              "min_sample_size": 3
+            },
+            "confidence_threshold": 0.55
+          }
+        },
+        {
+          "id": "treasury_management_fee",
+          "label": "Treasury Management Fee",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "treasury_management_currencies",
+          "label": "Currencies For Treasury Management Fee",
+          "type": "multi_enum",
+          "required": false,
+          "enum_options": [
+            {
+              "value": "USD",
+              "label": "USD"
+            },
+            {
+              "value": "EUR",
+              "label": "EUR"
+            },
+            {
+              "value": "GBP",
+              "label": "GBP"
+            },
+            {
+              "value": "AUD",
+              "label": "AUD"
+            },
+            {
+              "value": "CAD",
+              "label": "CAD"
+            },
+            {
+              "value": "CNY",
+              "label": "CNY"
+            },
+            {
+              "value": "HKD",
+              "label": "HKD"
+            },
+            {
+              "value": "SGD",
+              "label": "SGD"
+            },
+            {
+              "value": "MXN",
+              "label": "MXN"
+            },
+            {
+              "value": "XOF",
+              "label": "XOF"
+            },
+            {
+              "value": "XAF",
+              "label": "XAF"
+            },
+            {
+              "value": "SAR",
+              "label": "SAR"
+            },
+            {
+              "value": "PHP",
+              "label": "PHP"
+            },
+            {
+              "value": "IDR",
+              "label": "IDR"
+            }
+          ]
+        },
+        {
+          "id": "business_hub_platform_fee",
+          "label": "Business Hub Platform Fee",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "post_funding_line_penalty_percent",
+          "label": "Post Funding Line Penalty Fee (%)",
+          "type": "percentage",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "corridor_no_usage_fee",
+          "label": "Corridor No-Usage Fee",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "white_glove_service_fee",
+          "label": "White-Glove Service",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "stablecoin_prefunding_setup_fee",
+          "label": "Stablecoin Pre-funding Set-up Fee",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "digital_asset_icp_setup_fee",
+          "label": "Digital Asset ICP Setup Fee",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "bulk_currency_conversion_fee",
+          "label": "Bulk Currency Conversion",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          }
+        }
+      ],
+      "on_complete": {
+        "tool": "stage_setup_fee",
+        "args_template": {
+          "payload": "{{draft.setup_fee}}"
+        }
+      }
     },
     {
       "id": "pricing",
       "title": "Pricing",
-      "description": "Set corridor rates, FX spreads, and tiers.",
+      "description": "Set corridor pricing defaults, FX spread, and tier assumptions.",
       "approval_mode": "per_tab",
       "prerequisites": {
         "steps": [
@@ -133,59 +1024,639 @@
           "setup_fee"
         ]
       },
-      "fields": []
+      "fields": [
+        {
+          "id": "pricing_mode",
+          "label": "Pricing Mode",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "Standard Corridor Pricing",
+              "label": "Standard Corridor Pricing"
+            },
+            {
+              "value": "Tiered Pricing",
+              "label": "Tiered Pricing"
+            }
+          ]
+        },
+        {
+          "id": "corridor_pricing_scope",
+          "label": "Corridor Pricing Scope",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "Apply to selected corridors",
+              "label": "Apply to selected corridors"
+            },
+            {
+              "value": "Review corridor by corridor",
+              "label": "Review corridor by corridor"
+            }
+          ]
+        },
+        {
+          "id": "applied_rate_strategy",
+          "label": "Applied Rate Strategy",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "Use corridor default",
+              "label": "Use corridor default"
+            },
+            {
+              "value": "Override manually",
+              "label": "Override manually"
+            }
+          ]
+        },
+        {
+          "id": "applied_fx_spread_strategy",
+          "label": "Applied FX Spread Strategy",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "Use minimum spread",
+              "label": "Use minimum spread"
+            },
+            {
+              "value": "Override manually",
+              "label": "Override manually"
+            }
+          ]
+        },
+        {
+          "id": "default_transaction_fee",
+          "label": "Default Transaction Fee",
+          "type": "currency",
+          "required": true,
+          "validation": {
+            "min": 0,
+            "decimals": 4
+          },
+          "suggestion": {
+            "mode": "proactive",
+            "sources": [
+              "historical"
+            ],
+            "historical": {
+              "aggregation": "median",
+              "filter_keys": [
+                "corridor",
+                "service",
+                "transaction_type"
+              ],
+              "min_sample_size": 3
+            },
+            "confidence_threshold": 0.55
+          }
+        },
+        {
+          "id": "default_fx_spread_percent",
+          "label": "Default FX Spread %",
+          "type": "percentage",
+          "required": true,
+          "validation": {
+            "min": 0,
+            "decimals": 4
+          },
+          "suggestion": {
+            "mode": "proactive",
+            "sources": [
+              "historical"
+            ],
+            "historical": {
+              "aggregation": "median",
+              "filter_keys": [
+                "corridor",
+                "payout_currency"
+              ],
+              "min_sample_size": 3
+            },
+            "confidence_threshold": 0.55
+          }
+        },
+        {
+          "id": "volume_assumption_usd",
+          "label": "Volume Assumption USD",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "tiering_enabled",
+          "label": "Enable Tiered Pricing",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "tier_1_threshold",
+          "label": "Tier 1 Threshold",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "tier_1_fee",
+          "label": "Tier 1 Fee",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 4
+          },
+          "suggestion": {
+            "mode": "proactive",
+            "sources": [
+              "historical"
+            ],
+            "historical": {
+              "aggregation": "median",
+              "filter_keys": [
+                "corridor",
+                "service"
+              ],
+              "min_sample_size": 3
+            },
+            "confidence_threshold": 0.55
+          }
+        },
+        {
+          "id": "tier_2_threshold",
+          "label": "Tier 2 Threshold",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "tier_2_fee",
+          "label": "Tier 2 Fee",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 4
+          },
+          "suggestion": {
+            "mode": "proactive",
+            "sources": [
+              "historical"
+            ],
+            "historical": {
+              "aggregation": "median",
+              "filter_keys": [
+                "corridor",
+                "service"
+              ],
+              "min_sample_size": 3
+            },
+            "confidence_threshold": 0.55
+          }
+        },
+        {
+          "id": "tier_3_threshold",
+          "label": "Tier 3 Threshold",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "tier_3_fee",
+          "label": "Tier 3 Fee",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 4
+          },
+          "suggestion": {
+            "mode": "proactive",
+            "sources": [
+              "historical"
+            ],
+            "historical": {
+              "aggregation": "median",
+              "filter_keys": [
+                "corridor",
+                "service"
+              ],
+              "min_sample_size": 3
+            },
+            "confidence_threshold": 0.55
+          }
+        }
+      ],
+      "on_complete": {
+        "tool": "preview_pricing_change",
+        "args_template": {
+          "payload": "{{draft.pricing}}"
+        }
+      }
     },
     {
       "id": "pnl",
       "title": "P&L",
-      "description": "Review the profit and loss projection.",
+      "description": "Review discount, target margin, and growth assumptions.",
       "approval_mode": "per_tab",
       "prerequisites": {
         "steps": [
           "pricing"
         ]
       },
-      "fields": []
+      "fields": [
+        {
+          "id": "pl_discount_type",
+          "label": "P&L Discount Type",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "Fixed",
+              "label": "Fixed"
+            },
+            {
+              "value": "Percentage",
+              "label": "Percentage"
+            }
+          ]
+        },
+        {
+          "id": "pl_fixed_discount_t1",
+          "label": "Fixed Discount T1",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 4
+          }
+        },
+        {
+          "id": "pl_fixed_discount_t2",
+          "label": "Fixed Discount T2",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 4
+          }
+        },
+        {
+          "id": "pl_fixed_discount_t3",
+          "label": "Fixed Discount T3",
+          "type": "currency",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "decimals": 4
+          }
+        },
+        {
+          "id": "pl_discount_percent_t1",
+          "label": "Discount % T1",
+          "type": "percentage",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "max": 100,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "pl_discount_percent_t2",
+          "label": "Discount % T2",
+          "type": "percentage",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "max": 100,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "pl_discount_percent_t3",
+          "label": "Discount % T3",
+          "type": "percentage",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "max": 100,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "target_margin_percent",
+          "label": "Target Margin %",
+          "type": "percentage",
+          "required": true,
+          "validation": {
+            "min": 0,
+            "max": 100,
+            "decimals": 2
+          },
+          "suggestion": {
+            "mode": "proactive",
+            "sources": [
+              "historical"
+            ],
+            "historical": {
+              "aggregation": "median",
+              "filter_keys": [
+                "customer_segment"
+              ],
+              "min_sample_size": 3
+            },
+            "confidence_threshold": 0.55
+          }
+        },
+        {
+          "id": "target_gm_percent",
+          "label": "Target GM %",
+          "type": "percentage",
+          "required": true,
+          "validation": {
+            "min": 0,
+            "max": 100,
+            "decimals": 2
+          },
+          "suggestion": {
+            "mode": "proactive",
+            "sources": [
+              "historical"
+            ],
+            "historical": {
+              "aggregation": "median",
+              "filter_keys": [
+                "customer_segment"
+              ],
+              "min_sample_size": 3
+            },
+            "confidence_threshold": 0.55
+          }
+        },
+        {
+          "id": "growth_rate_year_2",
+          "label": "Growth Rate Year 2 %",
+          "type": "percentage",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "max": 100,
+            "decimals": 2
+          }
+        },
+        {
+          "id": "growth_rate_year_3",
+          "label": "Growth Rate Year 3 %",
+          "type": "percentage",
+          "required": false,
+          "validation": {
+            "min": 0,
+            "max": 100,
+            "decimals": 2
+          }
+        }
+      ],
+      "on_complete": {
+        "tool": "stage_pnl_projection",
+        "args_template": {
+          "payload": "{{draft.pnl}}"
+        }
+      }
     },
     {
       "id": "quoting_summary",
       "title": "Quoting summary",
-      "description": "Review the customer-facing quote.",
+      "description": "Control the customer-facing quote summary.",
       "approval_mode": "batch_at_submit",
       "prerequisites": {
         "steps": [
           "pnl"
         ]
       },
-      "fields": []
+      "fields": [
+        {
+          "id": "quote_summary_notes",
+          "label": "Quote Summary Notes",
+          "type": "string",
+          "required": false,
+          "ui": {
+            "placeholder": "Customer-facing pricing context"
+          }
+        },
+        {
+          "id": "include_setup_fees",
+          "label": "Include Setup Fees",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "include_fx_model",
+          "label": "Include FX Model",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "include_pnl_projection",
+          "label": "Include P&L Projection",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "customer_facing_currency",
+          "label": "Customer-facing Currency",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "USD",
+              "label": "USD"
+            },
+            {
+              "value": "EUR",
+              "label": "EUR"
+            },
+            {
+              "value": "GBP",
+              "label": "GBP"
+            },
+            {
+              "value": "AUD",
+              "label": "AUD"
+            },
+            {
+              "value": "CAD",
+              "label": "CAD"
+            },
+            {
+              "value": "CNY",
+              "label": "CNY"
+            },
+            {
+              "value": "HKD",
+              "label": "HKD"
+            },
+            {
+              "value": "SGD",
+              "label": "SGD"
+            },
+            {
+              "value": "MXN",
+              "label": "MXN"
+            },
+            {
+              "value": "XOF",
+              "label": "XOF"
+            },
+            {
+              "value": "XAF",
+              "label": "XAF"
+            },
+            {
+              "value": "SAR",
+              "label": "SAR"
+            },
+            {
+              "value": "PHP",
+              "label": "PHP"
+            },
+            {
+              "value": "IDR",
+              "label": "IDR"
+            }
+          ]
+        },
+        {
+          "id": "quote_valid_until",
+          "label": "Quote Valid Until",
+          "type": "date",
+          "required": false
+        }
+      ]
     },
     {
       "id": "legal",
       "title": "Legal",
-      "description": "Confirm terms and legal acceptance.",
+      "description": "Confirm contract generation options and legal notes.",
       "approval_mode": "batch_at_submit",
       "prerequisites": {
         "steps": [
           "quoting_summary"
         ]
       },
-      "fields": []
+      "fields": [
+        {
+          "id": "legal_comments",
+          "label": "Comments for Legal Team",
+          "type": "string",
+          "required": false,
+          "ui": {
+            "placeholder": "Add contract notes, exceptions, or special handling"
+          }
+        },
+        {
+          "id": "include_sd_quotation",
+          "label": "Generate SD Quotation",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "include_fee_annex",
+          "label": "Generate Fee Annex",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "include_fx_source",
+          "label": "Include FX Source",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "include_fx_spread",
+          "label": "Include FX Spread",
+          "type": "boolean",
+          "required": false
+        },
+        {
+          "id": "contract_language",
+          "label": "Contract Language",
+          "type": "enum",
+          "required": true,
+          "enum_options": [
+            {
+              "value": "English",
+              "label": "English"
+            }
+          ]
+        },
+        {
+          "id": "special_terms",
+          "label": "Special Terms",
+          "type": "string",
+          "required": false
+        }
+      ]
     },
     {
       "id": "approvals",
       "title": "Approvals",
-      "description": "Submit for internal approval. This is the submit gate.",
+      "description": "Submit the completed pricing request for internal approval.",
       "approval_mode": "per_tab",
       "prerequisites": {
         "steps": [
           "legal"
         ]
       },
-      "fields": [],
+      "fields": [
+        {
+          "id": "submit_for_approval",
+          "label": "Submit for Approval",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "id": "approval_comment",
+          "label": "Approval Comment",
+          "type": "string",
+          "required": false,
+          "ui": {
+            "placeholder": "Summarize why this request is ready for approval"
+          }
+        },
+        {
+          "id": "pricing_team_review",
+          "label": "Pricing Team Review",
+          "type": "boolean",
+          "required": true
+        },
+        {
+          "id": "legal_review_required",
+          "label": "Legal Review Required",
+          "type": "boolean",
+          "required": false
+        }
+      ],
       "on_complete": {
         "tool": "submit_for_approval",
         "args_template": {
-          "quote_payload": "{{draft.full_payload}}"
+          "quote_payload": "{{draft.full_payload}}",
+          "comment": "{{field:approvals.approval_comment}}"
         }
       }
     }
