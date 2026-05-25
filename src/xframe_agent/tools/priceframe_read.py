@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -30,6 +32,11 @@ class CurrencyInput(BaseModel):
 
 class SalesforceLookupInput(BaseModel):
     query: str = Field(min_length=1)
+
+
+class FieldSuggestionsInput(BaseModel):
+    field: str = Field(min_length=1)
+    ctx: dict[str, Any] = Field(default_factory=dict)
 
 
 class JsonOutput(BaseModel):
@@ -152,6 +159,35 @@ class LookupSalesforcePrTool(ToolDefinition[SalesforceLookupInput, JsonOutput]):
                 "/api/quotes/salesforce/search",
                 jwt_raw=ctx.jwt_raw,
                 params={"q": args.query},
+            )
+        )
+
+
+class GetFieldSuggestionsTool(ToolDefinition[FieldSuggestionsInput, JsonOutput]):
+    name = "get_field_suggestions"
+    description = (
+        "Fetch a historical-data suggestion (median/mean/mode/p75) for a workflow "
+        "field, scoped by the contextual filter keys (corridor, service, etc.)."
+    )
+    input_model = FieldSuggestionsInput
+    output_model = JsonOutput
+    permission = "agent.suggestions.read"
+    risk = "READ"
+    cost_class = "cheap"
+
+    async def _execute(
+        self,
+        args: FieldSuggestionsInput,
+        ctx: AuthContext,
+        priceframe: PriceFrameClient,
+    ) -> JsonOutput:
+        ctx_payload = json.dumps(args.ctx, separators=(",", ":"), sort_keys=True)
+        ctx_b64 = base64.b64encode(ctx_payload.encode("utf-8")).decode("ascii")
+        return JsonOutput(
+            data=await priceframe.get_json(
+                "/api/v1/agent/suggestions",
+                jwt_raw=ctx.jwt_raw,
+                params={"field": args.field, "ctx": ctx_b64},
             )
         )
 

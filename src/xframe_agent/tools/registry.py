@@ -8,6 +8,7 @@ from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.tools.base import ToolDefinition
 from xframe_agent.tools.priceframe_read import (
     GetCurrencyRateTool,
+    GetFieldSuggestionsTool,
     GetQuotationTool,
     ListCorridorsAvailableTool,
     ListMyQuotationsTool,
@@ -30,6 +31,7 @@ REGISTERED_TOOLS: tuple[ToolDefinition[Any, Any], ...] = (
     GetCurrencyRateTool(),
     LookupSalesforcePrTool(),
     RecalculateQuoteAggregatesTool(),
+    GetFieldSuggestionsTool(),
     PreviewPricingChangeTool(),
     CreateQuotationTool(),
     BulkAddCorridorsTool(),
