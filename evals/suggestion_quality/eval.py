@@ -171,10 +171,7 @@ class HistoricalStub:
             return {"value": None, "no_signal": True}
         ctx_raw = params.get("ctx") or ""
         ctx = _decode_ctx(ctx_raw)
-        subset = [
-            q for q in self._corpus
-            if all(q.get(k) == v for k, v in ctx.items())
-        ]
+        subset = [q for q in self._corpus if all(q.get(k) == v for k, v in ctx.items())]
         values = [q["fields"].get(field_id) for q in subset if field_id in q["fields"]]
         values = [v for v in values if isinstance(v, int | float)]
         if len(values) < 3:
@@ -381,9 +378,7 @@ def _write_markdown(report: dict[str, FieldReport], total_samples: int) -> None:
     lines.append("")
     lines.append(f"Total samples: {total_samples}")
     overall_within_25 = (
-        sum(r.within_25 for r in report.values()) / total_samples
-        if total_samples
-        else 0.0
+        sum(r.within_25 for r in report.values()) / total_samples if total_samples else 0.0
     )
     lines.append(f"Overall within ±25%: {overall_within_25:.1%}")
     lines.append(f"Baseline gate: {BASELINE_WITHIN_25:.0%}")

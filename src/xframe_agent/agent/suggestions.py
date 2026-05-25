@@ -501,9 +501,7 @@ async def fan_out_suggestions(
                 client=grounding_client,
             )
         )
-        historical_events, market_payloads = await asyncio.gather(
-            historical_task, market_task
-        )
+        historical_events, market_payloads = await asyncio.gather(historical_task, market_task)
 
     fields_by_id: dict[str, Any] = {}
     for field in _get(step, "fields") or []:

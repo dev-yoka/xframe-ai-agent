@@ -481,13 +481,9 @@ async def decide_step_advance(
                 mark_run_completed=False,
             )
         except ToolPermissionError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
-            ) from exc
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
         except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-            ) from exc
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         except PriceFrameError as exc:
             raise HTTPException(
                 status_code=_priceframe_error_status(exc),
@@ -730,9 +726,7 @@ async def request_reactive_suggestion(
 
     # Synthesize a single-field "step view" so the existing fan-out re-uses
     # all the same blending / budget / metric plumbing.
-    synthetic_step = (
-        {**step, "fields": [target]} if isinstance(step, dict) else step
-    )
+    synthetic_step = {**step, "fields": [target]} if isinstance(step, dict) else step
 
     async with PriceFrameClient.from_settings(settings) as priceframe:
         events = await emit_suggestions(

@@ -406,9 +406,7 @@ class WebResearchTool(ToolDefinition[WebResearchInput, WebResearchOutput]):
 
     async def _research(self, args: WebResearchInput) -> dict[str, Any]:
         ttl_seconds = (
-            args.max_age_seconds
-            if args.max_age_seconds is not None
-            else self._default_ttl_seconds
+            args.max_age_seconds if args.max_age_seconds is not None else self._default_ttl_seconds
         )
         if ttl_seconds is None or ttl_seconds <= 0:
             ttl_seconds = 6 * 60 * 60
@@ -431,9 +429,7 @@ class WebResearchTool(ToolDefinition[WebResearchInput, WebResearchOutput]):
         estimated_cost = (
             self._estimated_cost_usd
             if self._estimated_cost_usd is not None
-            else (
-                self._settings.web_research_estimated_cost_usd if self._settings else 0.01
-            )
+            else (self._settings.web_research_estimated_cost_usd if self._settings else 0.01)
         )
 
         if self._budget is not None and not self._budget.can_spend(estimated_cost):

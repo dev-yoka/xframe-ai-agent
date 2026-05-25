@@ -43,9 +43,7 @@ def load_golden_traces() -> list[GoldenTrace]:
                 input=payload["input"],
                 expected_tools=tuple(payload["expected_tools"]),
                 expected_final_status=payload["expected_final_status"],
-                expected_event_sequence=tuple(
-                    payload.get("expected_event_sequence", [])
-                ),
+                expected_event_sequence=tuple(payload.get("expected_event_sequence", [])),
             )
         )
     return traces

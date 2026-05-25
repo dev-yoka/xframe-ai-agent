@@ -118,14 +118,10 @@ def increment_run_error(cause: str) -> None:
 # --- Wave D helpers --------------------------------------------------------
 
 
-_VALID_STEP_OUTCOMES: frozenset[str] = frozenset(
-    {"approved", "blocked", "rejected", "abandoned"}
-)
+_VALID_STEP_OUTCOMES: frozenset[str] = frozenset({"approved", "blocked", "rejected", "abandoned"})
 
 
-def observe_workflow_step_duration(
-    *, step_id: str, outcome: str, seconds: float
-) -> None:
+def observe_workflow_step_duration(*, step_id: str, outcome: str, seconds: float) -> None:
     """Record one workflow step's wall-clock duration.
 
     ``outcome`` is constrained to the four labels declared in the spec so the
@@ -136,9 +132,7 @@ def observe_workflow_step_duration(
     safe_outcome = outcome if outcome in _VALID_STEP_OUTCOMES else "abandoned"
     if seconds < 0:
         seconds = 0.0
-    WORKFLOW_STEP_DURATION_SECONDS.labels(
-        step_id=step_id, outcome=safe_outcome
-    ).observe(seconds)
+    WORKFLOW_STEP_DURATION_SECONDS.labels(step_id=step_id, outcome=safe_outcome).observe(seconds)
 
 
 def increment_suggestion_sources(sources: Iterable[str]) -> None:
@@ -202,9 +196,7 @@ class WorkflowStepTimer:
             return
         self._recorded = True
         elapsed = max(0.0, time.monotonic() - self.started_at)
-        observe_workflow_step_duration(
-            step_id=self.step_id, outcome=self._outcome, seconds=elapsed
-        )
+        observe_workflow_step_duration(step_id=self.step_id, outcome=self._outcome, seconds=elapsed)
 
     def __enter__(self) -> WorkflowStepTimer:
         return self

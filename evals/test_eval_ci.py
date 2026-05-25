@@ -90,9 +90,7 @@ def test_full_flow_golden_includes_suggestion_events_per_proactive_step() -> Non
                 seen[step_id].add(field_id)
     for step_id, expected_fields in expected_proactive.items():
         missing = expected_fields - seen[step_id]
-        assert not missing, (
-            f"Step '{step_id}' missing suggestion events for: {sorted(missing)}"
-        )
+        assert not missing, f"Step '{step_id}' missing suggestion events for: {sorted(missing)}"
 
 
 def test_full_flow_golden_terminates_with_run_completed() -> None:

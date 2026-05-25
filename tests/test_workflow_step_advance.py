@@ -108,9 +108,7 @@ async def _seed_draft(
     assert save.status_code == 200
 
 
-async def _seed_succeeded_create_quotation(
-    app, run_id: str, quote_id: int
-) -> None:
+async def _seed_succeeded_create_quotation(app, run_id: str, quote_id: int) -> None:
     """Insert a synthetic completed create_quotation row so the resolver finds
     ``created_quote_id`` without going through the model loop."""
 
@@ -361,9 +359,7 @@ async def test_advance_approved_emits_step_entered_for_next_step(
     # Ordering: the entered event for pricing must arrive AFTER the
     # advance_approved event for setup_fee and BEFORE the run.completed
     # event closes the stream.
-    setup_fee_approved_index = stream_text.find(
-        "event: v1.workflow.step.advance_approved"
-    )
+    setup_fee_approved_index = stream_text.find("event: v1.workflow.step.advance_approved")
     pricing_entered_index = stream_text.find('"step_id":"pricing"')
     completed_index = stream_text.find('"via":"step_advance_approved"')
     assert setup_fee_approved_index > 0
@@ -462,9 +458,7 @@ async def test_advance_approved_fans_out_suggestions_for_next_step(
     ) -> _FakePriceFrame:
         return fake_pf
 
-    monkeypatch.setattr(
-        PriceFrameClient, "from_settings", staticmethod(fake_from_settings)
-    )
+    monkeypatch.setattr(PriceFrameClient, "from_settings", staticmethod(fake_from_settings))
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -597,9 +591,7 @@ async def test_final_step_approval_does_not_emit_step_entered(
     ) -> _FakePriceFrame:
         return _FakePriceFrame()
 
-    monkeypatch.setattr(
-        PriceFrameClient, "from_settings", staticmethod(fake_from_settings)
-    )
+    monkeypatch.setattr(PriceFrameClient, "from_settings", staticmethod(fake_from_settings))
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
@@ -640,9 +632,7 @@ async def test_final_step_approval_does_not_emit_step_entered(
     # is expected. The fix under test must NOT emit a second step.entered
     # after approving the final step (``approvals``), because there is no
     # successor tab.
-    advance_approved_index = stream_text.find(
-        "event: v1.workflow.step.advance_approved"
-    )
+    advance_approved_index = stream_text.find("event: v1.workflow.step.advance_approved")
     assert advance_approved_index > 0
     tail_after_approval = stream_text[advance_approved_index:]
     assert "event: v1.workflow.step.entered" not in tail_after_approval

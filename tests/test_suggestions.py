@@ -708,9 +708,7 @@ async def test_fan_out_suggestions_emits_blended_payload() -> None:
                 "value": 1.1,
                 "confidence": 0.8,
                 "summary": "Market median around 1.1%",
-                "citations": [
-                    {"url": "https://example.com", "title": "Source", "snippet": "snip"}
-                ],
+                "citations": [{"url": "https://example.com", "title": "Source", "snippet": "snip"}],
             }
         }
     )
@@ -902,9 +900,7 @@ async def test_fan_out_suggestions_threads_parent_span_into_fanout_span(
     captured_parents: list[Any] = []
 
     @contextmanager
-    def _recording_fanout_span(
-        parent: Any, *, step_id: str, field_count: int | None = None
-    ) -> Any:
+    def _recording_fanout_span(parent: Any, *, step_id: str, field_count: int | None = None) -> Any:
         del step_id, field_count
         captured_parents.append(parent)
         yield object()

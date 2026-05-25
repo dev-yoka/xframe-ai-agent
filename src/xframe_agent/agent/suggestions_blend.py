@@ -243,9 +243,7 @@ def _maybe_reconcile(
         if flash_reconciler is not None:
             try:
                 reconciled = asyncio_run_if_needed(
-                    flash_reconciler.reconcile(
-                        historical=historical_value, market=market_value
-                    )
+                    flash_reconciler.reconcile(historical=historical_value, market=market_value)
                 )
             except RuntimeError:
                 reconciled = None
@@ -347,8 +345,7 @@ async def blend_async(
                 no_signal=False,
                 value=float(reconciled["recommended"]),
                 rationale=str(
-                    reconciled.get("rationale")
-                    or "disagreement >25% — reconciled by Gemini Flash"
+                    reconciled.get("rationale") or "disagreement >25% — reconciled by Gemini Flash"
                 ),
                 sources_used=sources_used,
             )
@@ -488,9 +485,7 @@ def _parse_flash_response(data: Any) -> dict[str, Any] | None:
     parts = content.get("parts") if isinstance(content, dict) else None
     if not isinstance(parts, list):
         return None
-    raw_text = "\n".join(
-        part.get("text", "") for part in parts if isinstance(part, dict)
-    ).strip()
+    raw_text = "\n".join(part.get("text", "") for part in parts if isinstance(part, dict)).strip()
     if not raw_text:
         return None
     try:

@@ -30,9 +30,7 @@ from xframe_agent.worker import purge_expired_workflow_drafts
 @pytest.fixture
 async def db_engine(tmp_path: Path) -> AsyncEngine:  # type: ignore[misc]
     """Yield a fresh in-memory-like SQLite engine with the full schema."""
-    engine = create_async_engine(
-        f"sqlite+aiosqlite:///{tmp_path / 'drafts_cleanup.db'}"
-    )
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'drafts_cleanup.db'}")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
@@ -145,9 +143,7 @@ async def test_purge_deletes_expired_draft_and_keeps_future_draft(
 
     # Verify only the future draft remains in the DB.
     async with session_factory() as session:
-        remaining = (
-            await session.execute(select(AgentWorkflowDraft))
-        ).scalars().all()
+        remaining = (await session.execute(select(AgentWorkflowDraft))).scalars().all()
 
     assert len(remaining) == 1
     assert remaining[0].conversation_id == future_conv_id
@@ -187,7 +183,5 @@ async def test_purge_returns_zero_when_no_drafts_are_expired(
     assert deleted_count == 0
 
     async with session_factory() as session:
-        remaining = (
-            await session.execute(select(AgentWorkflowDraft))
-        ).scalars().all()
+        remaining = (await session.execute(select(AgentWorkflowDraft))).scalars().all()
     assert len(remaining) == 1

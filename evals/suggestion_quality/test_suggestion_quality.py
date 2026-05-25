@@ -49,9 +49,7 @@ async def test_suggestion_quality_no_field_in_total_collapse() -> None:
         if rec.samples == 0:
             continue
         if rec.accuracy_within_25 < 0.30:
-            weak_fields.append(
-                f"{field_id} ({rec.within_25}/{rec.samples} within ±25%)"
-            )
+            weak_fields.append(f"{field_id} ({rec.within_25}/{rec.samples} within ±25%)")
     assert not weak_fields, (
         "One or more fields collapsed below the per-field floor (30% within ±25%): "
         + ", ".join(weak_fields)

@@ -297,9 +297,7 @@ async def evaluate_step_advance(
         )
 
     if approval_mode != "per_tab":
-        raise StepAdvanceError(
-            f"Step '{step_id}' has unsupported approval_mode '{approval_mode}'"
-        )
+        raise StepAdvanceError(f"Step '{step_id}' has unsupported approval_mode '{approval_mode}'")
 
     if not on_complete:
         return AdvanceDecision(
@@ -418,8 +416,7 @@ async def emit_advance_event(
         common_payload["tool_call_ids"] = decision.persisted_tool_call_ids
     if decision.tool_calls:
         common_payload["tool_calls"] = [
-            {"tool_name": call.tool_name, "args": call.args}
-            for call in decision.tool_calls
+            {"tool_name": call.tool_name, "args": call.args} for call in decision.tool_calls
         ]
     if decision.detail:
         common_payload["detail"] = decision.detail
@@ -531,12 +528,12 @@ async def emit_step_entered_with_suggestions(
     fan-out shows up as a grandchild of the run trace (Phase 11 open item).
     """
 
-    contract_id = (
-        contract.get("id") if isinstance(contract, Mapping) else None
-    ) or (contract.get("contract_id") if isinstance(contract, Mapping) else None)
-    contract_version = (
-        contract.get("version") if isinstance(contract, Mapping) else None
-    ) or (contract.get("contract_version") if isinstance(contract, Mapping) else None)
+    contract_id = (contract.get("id") if isinstance(contract, Mapping) else None) or (
+        contract.get("contract_id") if isinstance(contract, Mapping) else None
+    )
+    contract_version = (contract.get("version") if isinstance(contract, Mapping) else None) or (
+        contract.get("contract_version") if isinstance(contract, Mapping) else None
+    )
     step_id_value: Any = step.get("id") if isinstance(step, Mapping) else None
     if step_id_value is not None and hasattr(step_id_value, "value"):
         step_id_value = step_id_value.value

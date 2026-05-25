@@ -123,8 +123,7 @@ class AgentLoop:
                 )
 
         is_create_pricing_wizard = (
-            is_create_pricing_conversation
-            and is_generic_create_pricing_request(redacted.text)
+            is_create_pricing_conversation and is_generic_create_pricing_request(redacted.text)
         )
         proposal = self._build_tool_proposal(redacted.text, context)
         assistant_text = (
