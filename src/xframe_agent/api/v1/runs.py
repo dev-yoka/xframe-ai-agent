@@ -18,6 +18,7 @@ from xframe_agent.agent.events import (
     list_run_events,
     record_step_duration_from_events,
 )
+from xframe_agent.agent.suggestions import emit_suggestions
 from xframe_agent.agent.workflow_advance import (
     StepAdvanceError,
     emit_advance_event,
@@ -31,6 +32,7 @@ from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.db.session import get_session
 from xframe_agent.models import (
     AgentAuditLog,
+    AgentConversation,
     AgentRun,
     AgentRunStep,
     AgentToolCall,
@@ -602,6 +604,148 @@ async def _enter_next_step_after_advance(
             auth_ctx=auth,
             priceframe=None,
         )
+
+
+async def _resolve_run_or_conversation(
+    session: AsyncSession,
+    auth: AuthContext,
+    ident: str,
+) -> AgentRun:
+    """Resolve a path parameter that may carry either a run_id or a conversation_id.
+
+    The Wave C client (PriceFRAME commit ``77de2637``) passes the *conversation
+    id* into the reactive suggestion route because the wizard hook tracks
+    conversations rather than the per-run id. To keep the client trivial, this
+    helper accepts both:
+
+    1. If ``ident`` matches an ``AgentRun`` owned by the caller, use it.
+    2. Otherwise look up an ``AgentConversation`` with the same id and return
+       its most-recently-updated run.
+
+    Returns 404 otherwise (also covers the cross-user case).
+    """
+
+    run = await session.get(AgentRun, ident)
+    if run is not None and run.user_id == auth.user_id:
+        return run
+    conversation = await session.get(AgentConversation, ident)
+    if conversation is None or conversation.user_id != auth.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No run or conversation found for this id",
+        )
+    result = await session.execute(
+        select(AgentRun)
+        .where(AgentRun.conversation_id == conversation.id, AgentRun.user_id == auth.user_id)
+        .order_by(AgentRun.updated_at.desc())
+        .limit(1)
+    )
+    latest_run = result.scalar_one_or_none()
+    if latest_run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active run for this conversation",
+        )
+    return latest_run
+
+
+@router.post(
+    "/runs/{run_or_conversation_id}/suggestions/{field_id}",
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def request_reactive_suggestion(
+    run_or_conversation_id: str,
+    field_id: str,
+    session: SessionDep,
+    auth: AuthDep,
+    settings: SettingsDep,
+) -> dict[str, str]:
+    """On-demand suggestion for a single reactive-mode field (M2 / Phase 11).
+
+    The wizard POSTs here when a user clicks "Ask the agent" on a reactive
+    field. ``run_or_conversation_id`` may be either a real ``run_id`` or the
+    parent ``conversation_id`` — the Wave C client passes the conversation
+    id, so the server resolves both shapes transparently rather than forcing
+    a client-side plumbing change.
+
+    The fan-out is gated on ``agent.suggestions.read``. Successful runs emit
+    a ``v1.suggestion.ready`` / ``v1.suggestion.no_signal`` event over SSE so
+    the client picks up the response on the existing stream.
+    """
+
+    if not auth.has_permission("agent.suggestions.read"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing agent.suggestions.read permission",
+        )
+
+    run = await _resolve_run_or_conversation(session, auth, run_or_conversation_id)
+    draft = await session.get(AgentWorkflowDraft, run.conversation_id)
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active workflow draft for this conversation",
+        )
+    try:
+        contract = load_contract(draft.contract_id, draft.contract_version)
+    except StepAdvanceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    step_id = draft.current_step_id
+    step: Any | None = None
+    steps_iter: list[Any] = contract.get("steps", []) if isinstance(contract, dict) else []
+    for candidate in steps_iter:
+        cid: Any = (
+            candidate.get("id") if isinstance(candidate, dict) else getattr(candidate, "id", None)
+        )
+        if cid is not None and hasattr(cid, "value"):
+            cid = cid.value
+        if str(cid) == str(step_id):
+            step = candidate
+            break
+    if step is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Step {step_id!r} not found in contract {draft.contract_id}",
+        )
+
+    raw_fields = step.get("fields") if isinstance(step, dict) else getattr(step, "fields", None)
+    fields_iter: list[Any] = list(raw_fields) if raw_fields is not None else []
+    target: Any | None = None
+    for field in fields_iter:
+        fid: Any = field.get("id") if isinstance(field, dict) else getattr(field, "id", None)
+        if fid is not None and hasattr(fid, "value"):
+            fid = fid.value
+        if str(fid) == field_id:
+            target = field
+            break
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Field {field_id!r} not found in step {step_id!r}",
+        )
+
+    # Synthesize a single-field "step view" so the existing fan-out re-uses
+    # all the same blending / budget / metric plumbing.
+    synthetic_step = (
+        {**step, "fields": [target]} if isinstance(step, dict) else step
+    )
+
+    async with PriceFrameClient.from_settings(settings) as priceframe:
+        events = await emit_suggestions(
+            session,
+            run_id=run.id,
+            contract=contract,
+            step=synthetic_step,
+            draft_state=draft.payload,
+            auth_ctx=auth,
+            priceframe=priceframe,
+        )
+    await session.commit()
+    return {"run_id": run.id, "field_id": field_id, "events_emitted": str(len(events))}
 
 
 async def _list_proposed_tool_calls_for_step(
