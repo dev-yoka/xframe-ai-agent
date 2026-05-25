@@ -23,7 +23,10 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xframe_agent.agent.budget import BudgetExceededError, LoopBudget
-from xframe_agent.agent.events import append_run_event
+from xframe_agent.agent.events import (
+    EVENT_WORKFLOW_STEP_PROPOSED,
+    append_run_event,
+)
 from xframe_agent.agent.guided_workflows import (
     CREATE_PRICING_REQUEST_CONTRACT_VERSION,
     CREATE_PRICING_REQUEST_INITIAL_STEP,
@@ -36,7 +39,9 @@ from xframe_agent.agent.guided_workflows import (
 )
 from xframe_agent.agent.prompts.create_pricing_request import get_system_prompt
 from xframe_agent.agent.redaction import redact
+from xframe_agent.agent.step_proposals import propose_step_payload
 from xframe_agent.agent.suggestions import emit_suggestions
+from xframe_agent.agent.suggestions_budget import RunBudget
 from xframe_agent.agent.workflow_advance import (
     StepAdvanceError,
     get_step,
@@ -81,6 +86,9 @@ async def _fanout_initial_step_suggestions(
 
     Failures are swallowed so the workflow always advances; suggestions are an
     additive UX layer.
+
+    M2.1.B: also build and emit a ``v1.workflow.step.proposed`` event covering
+    the initial step's declared essential_field_ids.
     """
 
     try:
@@ -93,6 +101,7 @@ async def _fanout_initial_step_suggestions(
     step = get_step(contract, CREATE_PRICING_REQUEST_INITIAL_STEP)
     if step is None:
         return
+    shared_budget = RunBudget()
     try:
         await emit_suggestions(
             session,
@@ -102,9 +111,31 @@ async def _fanout_initial_step_suggestions(
             draft_state={},
             auth_ctx=context,
             priceframe=priceframe,
+            budget=shared_budget,
         )
-    except Exception:  # noqa: BLE001 - suggestions are best-effort
-        return
+    except Exception:  # noqa: BLE001, S110 - suggestions are best-effort
+        pass
+    try:
+        proposal_payload = await propose_step_payload(
+            contract=contract,
+            step=step,
+            draft_state={},
+            auth_ctx=context,
+            priceframe=priceframe,
+            budget=shared_budget,
+        )
+    except Exception:  # noqa: BLE001 - proposal is best-effort
+        proposal_payload = None
+    if proposal_payload is not None:
+        try:
+            await append_run_event(
+                session,
+                run_id=run_id,
+                event_type=EVENT_WORKFLOW_STEP_PROPOSED,
+                payload=proposal_payload,
+            )
+        except Exception:  # noqa: BLE001 - never block the wizard
+            return
 
 
 class LoopDetectedError(Exception):

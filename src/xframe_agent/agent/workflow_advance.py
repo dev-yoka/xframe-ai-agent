@@ -577,7 +577,7 @@ async def emit_step_entered_with_suggestions(
                 budget=shared_budget,
                 parent_span=step_span,
             )
-        except Exception:  # noqa: BLE001 - suggestions are best-effort
+        except Exception:  # noqa: BLE001, S110 - suggestions are best-effort
             # Still attempt the step proposal below — it has its own try/except.
             pass
 

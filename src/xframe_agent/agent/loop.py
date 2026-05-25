@@ -20,7 +20,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xframe_agent.agent.budget import BudgetExceededError, LoopBudget
-from xframe_agent.agent.events import append_run_event
+from xframe_agent.agent.events import (
+    EVENT_WORKFLOW_STEP_PROPOSED,
+    append_run_event,
+)
 from xframe_agent.agent.guided_workflows import (
     CREATE_PRICING_REQUEST_CONTRACT_VERSION,
     CREATE_PRICING_REQUEST_INITIAL_STEP,
@@ -31,7 +34,9 @@ from xframe_agent.agent.guided_workflows import (
     parse_create_pricing_request_submission,
 )
 from xframe_agent.agent.redaction import redact
+from xframe_agent.agent.step_proposals import propose_step_payload
 from xframe_agent.agent.suggestions import emit_suggestions
+from xframe_agent.agent.suggestions_budget import RunBudget
 from xframe_agent.agent.workflow_advance import (
     StepAdvanceError,
     get_step,
@@ -468,6 +473,9 @@ class AgentLoop:
         swallowed so the workflow always advances. Builds a single short-lived
         ``PriceFrameClient`` because the deterministic loop owns no shared
         client (unlike :class:`ModelRunner`).
+
+        M2.1.B: also emits ``v1.workflow.step.proposed`` for the initial step
+        so the wizard's StepProposalCard surfaces on first paint.
         """
 
         try:
@@ -480,19 +488,45 @@ class AgentLoop:
         step = get_step(contract, CREATE_PRICING_REQUEST_INITIAL_STEP)
         if step is None:
             return
+        shared_budget = RunBudget()
         try:
             async with PriceFrameClient.from_settings(self._settings) as priceframe:
-                await emit_suggestions(
-                    session,
-                    run_id=run_id,
-                    contract=contract,
-                    step=step,
-                    draft_state={},
-                    auth_ctx=context,
-                    priceframe=priceframe,
-                    settings=self._settings,
-                )
-        except Exception:  # noqa: BLE001 - suggestions are best-effort
+                try:
+                    await emit_suggestions(
+                        session,
+                        run_id=run_id,
+                        contract=contract,
+                        step=step,
+                        draft_state={},
+                        auth_ctx=context,
+                        priceframe=priceframe,
+                        settings=self._settings,
+                        budget=shared_budget,
+                    )
+                except Exception:  # noqa: BLE001, S110 - suggestions are best-effort
+                    pass
+                try:
+                    proposal_payload = await propose_step_payload(
+                        contract=contract,
+                        step=step,
+                        draft_state={},
+                        auth_ctx=context,
+                        priceframe=priceframe,
+                        budget=shared_budget,
+                    )
+                except Exception:  # noqa: BLE001 - proposal is best-effort
+                    proposal_payload = None
+                if proposal_payload is not None:
+                    try:
+                        await append_run_event(
+                            session,
+                            run_id=run_id,
+                            event_type=EVENT_WORKFLOW_STEP_PROPOSED,
+                            payload=proposal_payload,
+                        )
+                    except Exception:  # noqa: BLE001 - never block the wizard
+                        return
+        except Exception:  # noqa: BLE001 - PriceFrameClient construction failures
             return
 
 
