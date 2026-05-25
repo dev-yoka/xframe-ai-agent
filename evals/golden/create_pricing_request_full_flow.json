@@ -1,0 +1,165 @@
+{
+  "name": "create-pricing-request-full-flow",
+  "description": "End-to-end synthetic walk through every step of the create_pricing_request wizard (M2 Phase 10 golden). Captures the workflow event taxonomy in execution order so a regression in the runtime that drops one of the events (or fans suggestions out for the wrong tab) shows up as a structural diff.",
+  "input": "Create a pricing request for Acme MEA Q3.",
+  "expected_tools": [
+    "create_quotation",
+    "preview_pricing_change",
+    "submit_for_approval"
+  ],
+  "expected_final_status": "completed",
+  "expected_event_sequence": [
+    {
+      "event_type": "v1.workflow.step.entered",
+      "step_id": "summary",
+      "note": "Initial step; Summary has no proactive-historical fields so no suggestion events here."
+    },
+    {
+      "event_type": "v1.input.requested",
+      "note": "Wizard pauses for user input on the Summary tab."
+    },
+    {
+      "event_type": "v1.workflow.step.advance_requested",
+      "step_id": "summary",
+      "on_complete_tool": "create_quotation",
+      "note": "User clicks Next on Summary; runner bundles create_quotation as the on_complete tool."
+    },
+    {
+      "event_type": "v1.workflow.step.advance_approved",
+      "step_id": "summary",
+      "note": "User approves the bundled create_quotation tool call; runtime persists the new quote_id for later args_template resolution."
+    },
+    {
+      "event_type": "v1.workflow.step.entered",
+      "step_id": "setup_fee",
+      "note": "Per-tab orchestration advances to setup_fee."
+    },
+    {
+      "event_type": "v1.suggestion.ready",
+      "field_id": "standard_commitment_fee",
+      "step_id": "setup_fee",
+      "sources_used": ["historical"]
+    },
+    {
+      "event_type": "v1.suggestion.ready",
+      "field_id": "quoted_setup_price",
+      "step_id": "setup_fee",
+      "sources_used": ["historical"]
+    },
+    {
+      "event_type": "v1.suggestion.ready",
+      "field_id": "service_request_fee_reversal",
+      "step_id": "setup_fee",
+      "sources_used": ["historical"]
+    },
+    {
+      "event_type": "v1.suggestion.ready",
+      "field_id": "emergency_funding_fee",
+      "step_id": "setup_fee",
+      "sources_used": ["historical"]
+    },
+    {
+      "event_type": "v1.workflow.step.advance_requested",
+      "step_id": "setup_fee",
+      "note": "Setup fee step has no on_complete tool; the bundle is empty but the runtime still emits a request->approved pair for telemetry symmetry."
+    },
+    {
+      "event_type": "v1.workflow.step.advance_approved",
+      "step_id": "setup_fee"
+    },
+    {
+      "event_type": "v1.workflow.step.entered",
+      "step_id": "pricing"
+    },
+    {
+      "event_type": "v1.suggestion.ready",
+      "field_id": "default_transaction_fee",
+      "step_id": "pricing",
+      "sources_used": ["historical"]
+    },
+    {
+      "event_type": "v1.suggestion.ready",
+      "field_id": "default_fx_spread_percent",
+      "step_id": "pricing",
+      "sources_used": ["historical"]
+    },
+    {
+      "event_type": "v1.suggestion.ready",
+      "field_id": "tier_1_fee",
+      "step_id": "pricing",
+      "sources_used": ["historical"]
+    },
+    {
+      "event_type": "v1.suggestion.ready",
+      "field_id": "tier_2_fee",
+      "step_id": "pricing",
+      "sources_used": ["historical"]
+    },
+    {
+      "event_type": "v1.suggestion.ready",
+      "field_id": "tier_3_fee",
+      "step_id": "pricing",
+      "sources_used": ["historical"]
+    },
+    {
+      "event_type": "v1.workflow.step.advance_requested",
+      "step_id": "pricing",
+      "on_complete_tool": "preview_pricing_change"
+    },
+    {
+      "event_type": "v1.workflow.step.advance_approved",
+      "step_id": "pricing"
+    },
+    {
+      "event_type": "v1.workflow.step.entered",
+      "step_id": "pnl"
+    },
+    {
+      "event_type": "v1.suggestion.ready",
+      "field_id": "target_margin_percent",
+      "step_id": "pnl",
+      "sources_used": ["historical"]
+    },
+    {
+      "event_type": "v1.suggestion.ready",
+      "field_id": "target_gm_percent",
+      "step_id": "pnl",
+      "sources_used": ["historical"]
+    },
+    {
+      "event_type": "v1.workflow.step.advance_requested",
+      "step_id": "pnl"
+    },
+    {
+      "event_type": "v1.workflow.step.advance_approved",
+      "step_id": "pnl"
+    },
+    {
+      "event_type": "v1.workflow.step.entered",
+      "step_id": "quoting_summary",
+      "note": "batch_at_submit step — no suggestions, no on_complete tool."
+    },
+    {
+      "event_type": "v1.workflow.step.entered",
+      "step_id": "legal",
+      "note": "batch_at_submit step — also no suggestions, no on_complete tool."
+    },
+    {
+      "event_type": "v1.workflow.step.entered",
+      "step_id": "approvals"
+    },
+    {
+      "event_type": "v1.workflow.step.advance_requested",
+      "step_id": "approvals",
+      "on_complete_tool": "submit_for_approval"
+    },
+    {
+      "event_type": "v1.workflow.step.advance_approved",
+      "step_id": "approvals"
+    },
+    {
+      "event_type": "v1.run.completed",
+      "note": "Final terminal event for the wizard."
+    }
+  ]
+}
