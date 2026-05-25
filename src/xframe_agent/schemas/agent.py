@@ -149,6 +149,30 @@ class StepDecisionResponse(BaseModel):
     reason: str | None = None
 
 
+class StepProposalDecisionRequest(BaseModel):
+    """Accept or dismiss a previously emitted ``v1.workflow.step.proposed`` event.
+
+    On ``accept`` the (possibly user-edited) ``payload`` is merged into the
+    workflow draft for ``step_id`` and ``v1.workflow.step.proposal_accepted``
+    is emitted. On ``dismiss`` ``payload`` is ignored and
+    ``v1.workflow.step.proposal_dismissed`` is emitted with an optional reason.
+
+    Neither path advances the wizard — the client still has to call
+    ``/runs/{run_id}/step_advance`` after acceptance so the user can review the
+    ToolProposalCard for the underlying write tool.
+    """
+
+    step_id: str = Field(min_length=1, max_length=64)
+    decision: Literal["accept", "dismiss"]
+    payload: dict[str, object] | None = None
+    reason: Literal["user_edit", "user_skipped"] | None = None
+
+
+class StepProposalDecisionResponse(BaseModel):
+    status: Literal["accepted", "dismissed"]
+    populated_fields: list[str] = Field(default_factory=list)
+
+
 class ToolSchema(BaseModel):
     name: str
     description: str

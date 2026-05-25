@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from xframe_agent.agent.events import (
+    EVENT_WORKFLOW_STEP_PROPOSAL_ACCEPTED,
+    EVENT_WORKFLOW_STEP_PROPOSAL_DISMISSED,
     append_run_event,
     event_payload,
     list_run_events,
@@ -24,6 +26,7 @@ from xframe_agent.agent.workflow_advance import (
     emit_advance_event,
     emit_step_entered_with_suggestions,
     evaluate_step_advance,
+    get_step,
     load_contract,
     next_step_after,
 )
@@ -55,6 +58,8 @@ from xframe_agent.schemas import (
     StepAdvanceToolCall,
     StepDecisionRequest,
     StepDecisionResponse,
+    StepProposalDecisionRequest,
+    StepProposalDecisionResponse,
 )
 from xframe_agent.settings import Settings, get_settings
 from xframe_agent.tools.base import ToolPermissionError
@@ -540,6 +545,112 @@ async def decide_step_advance(
         status="approved",
         tool_call_results=tool_call_results,
     )
+
+
+@router.post(
+    "/runs/{run_id}/step_proposal_decision",
+    response_model=StepProposalDecisionResponse,
+)
+async def decide_step_proposal(
+    run_id: str,
+    payload: StepProposalDecisionRequest,
+    session: SessionDep,
+    auth: AuthDep,
+) -> StepProposalDecisionResponse:
+    """Accept or dismiss a ``v1.workflow.step.proposed`` event.
+
+    On ``accept`` the (possibly user-edited) payload is merged into the
+    workflow draft for ``step_id`` and ``v1.workflow.step.proposal_accepted``
+    is emitted with the populated field ids. On ``dismiss`` no draft writes
+    happen and ``v1.workflow.step.proposal_dismissed`` is emitted with the
+    optional reason.
+
+    Neither path advances the wizard — the wizard still has to call
+    ``/runs/{run_id}/step_advance`` after acceptance so the user can review the
+    ToolProposalCard for the actual write tool.
+    """
+
+    run = await require_run(session, auth, run_id)
+
+    draft = await session.get(AgentWorkflowDraft, run.conversation_id)
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active workflow draft for this conversation",
+        )
+
+    try:
+        contract = load_contract(draft.contract_id, draft.contract_version)
+    except StepAdvanceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    step = get_step(contract, payload.step_id)
+    if step is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Step {payload.step_id!r} not in contract {draft.contract_id}",
+        )
+
+    if payload.decision == "dismiss":
+        await append_run_event(
+            session,
+            run_id=run_id,
+            event_type=EVENT_WORKFLOW_STEP_PROPOSAL_DISMISSED,
+            payload={
+                "step_id": payload.step_id,
+                "reason": payload.reason,
+            },
+        )
+        await session.commit()
+        return StepProposalDecisionResponse(status="dismissed", populated_fields=[])
+
+    # accept: validate field ids belong to the step, then merge into the draft.
+    proposed = dict(payload.payload or {})
+    valid_field_ids: set[str] = set()
+    for field in step.get("fields", []) if isinstance(step, Mapping) else []:
+        fid: Any = (
+            field.get("id") if isinstance(field, Mapping) else getattr(field, "id", None)
+        )
+        if hasattr(fid, "value"):
+            fid = fid.value
+        if isinstance(fid, str) and fid:
+            valid_field_ids.add(fid)
+    unknown = [key for key in proposed if key not in valid_field_ids]
+    if unknown:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                f"Proposed payload contains field ids not on step "
+                f"{payload.step_id!r}: {sorted(unknown)}"
+            ),
+        )
+
+    # Merge — never replace the whole step section, so adjacent fields the
+    # user already typed survive.
+    draft_payload = dict(draft.payload or {})
+    section = dict(draft_payload.get(payload.step_id) or {})
+    for key, value in proposed.items():
+        section[key] = value
+    draft_payload[payload.step_id] = section
+    draft.payload = draft_payload
+    draft.updated_at = utc_now()
+    session.add(draft)
+
+    populated_fields = sorted(proposed.keys())
+    await append_run_event(
+        session,
+        run_id=run_id,
+        event_type=EVENT_WORKFLOW_STEP_PROPOSAL_ACCEPTED,
+        payload={
+            "step_id": payload.step_id,
+            "populated_fields": populated_fields,
+        },
+    )
+    await session.commit()
+    return StepProposalDecisionResponse(status="accepted", populated_fields=populated_fields)
 
 
 async def _enter_next_step_after_advance(
