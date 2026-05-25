@@ -1,10 +1,12 @@
-"""Tests for the proactive historical suggestion fan-out (M2-Phase-08 Wave B.2)."""
+"""Tests for the proactive historical suggestion fan-out (M2-Phase-08 Wave B.2)
+plus the M2 Phase 9 / Wave C blending + market band paths."""
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.ext.asyncio import (
@@ -21,10 +23,20 @@ from xframe_agent.agent.suggestions import (
     build_suggestion_ctx,
     emit_historical_suggestions,
     fan_out_historical_suggestions,
+    fan_out_suggestions,
 )
+from xframe_agent.agent.suggestions_blend import (
+    BlendResult,
+    FlashReconciler,
+    blend,
+    blend_async,
+)
+from xframe_agent.agent.suggestions_budget import RunBudget
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.db.base import Base
 from xframe_agent.models import AgentConversation, AgentRun
+from xframe_agent.settings import Settings
+from xframe_agent.tools.web_research import ResearchCache
 
 _AUTH = AuthContext(
     user_id=1,
@@ -478,3 +490,401 @@ async def test_emit_historical_suggestions_persists_events(
     payload = stored[0].payload
     assert payload["field_id"] == "default_transaction_fee"
     assert payload["value"] == 1.5
+
+
+# ---------------------------------------------------------------------------
+# Wave C — blending tests (deterministic rules + Flash fallback)
+# ---------------------------------------------------------------------------
+
+
+def _historical(value: float, sample_size: int) -> dict[str, Any]:
+    return {
+        "value": value,
+        "unit": "PCT_AMOUNT",
+        "sample_size": sample_size,
+        "range": {"min": value * 0.8, "max": value * 1.2},
+        "basis": {"aggregation": "median"},
+        "as_of": "2026-05-25T00:00:00Z",
+    }
+
+
+def _market(value: float | None, confidence: float) -> dict[str, Any]:
+    return {
+        "value": value,
+        "confidence": confidence,
+        "summary": "market summary",
+        "citations": [{"url": "https://x", "title": "x", "snippet": "x"}],
+        "cache_hit": False,
+    }
+
+
+def test_blend_strong_historical_and_market_uses_seventy_thirty() -> None:
+    result = blend(_historical(1.0, 20), _market(2.0, 0.8))
+    assert not result.no_signal
+    # 70/30 weighted = 0.7*1.0 + 0.3*2.0 = 1.3
+    # BUT disagreement 100% (>25%), so deterministic 70/30 is used with the
+    # "Flash fallback unavailable" suffix since no reconciler is wired.
+    assert result.value == pytest.approx(1.3, rel=1e-6)
+    assert result.sources_used == ["historical", "market"]
+    assert "70/30" in result.rationale
+
+
+def test_blend_strong_historical_no_disagreement_clean_rationale() -> None:
+    # Within 25% — clean rationale, no fallback suffix.
+    result = blend(_historical(1.0, 20), _market(1.1, 0.8))
+    assert result.value == pytest.approx(0.7 * 1.0 + 0.3 * 1.1, rel=1e-6)
+    assert "Flash fallback unavailable" not in result.rationale
+    assert result.sources_used == ["historical", "market"]
+
+
+def test_blend_moderate_historical_and_market_50_50() -> None:
+    result = blend(_historical(1.0, 5), _market(1.2, 0.6))
+    # 50/50 = 1.1
+    assert result.value == pytest.approx(1.1, rel=1e-6)
+    assert "50/50" in result.rationale
+    assert result.sources_used == ["historical", "market"]
+
+
+def test_blend_market_only_when_historical_weak() -> None:
+    # sample size below 3, market confidence >= 0.5
+    result = blend(_historical(0.5, 1), _market(1.4, 0.6))
+    assert result.value == 1.4
+    assert result.sources_used == ["market"]
+    assert "market only" in result.rationale
+
+
+def test_blend_no_signal_when_both_weak() -> None:
+    result = blend(_historical(0.5, 1), _market(0.7, 0.2))
+    assert result.no_signal is True
+    assert result.value is None
+    assert result.reason == "confidence_below_threshold"
+
+
+def test_blend_historical_only_when_market_missing() -> None:
+    result = blend(_historical(1.2, 8), None)
+    assert result.value == 1.2
+    assert result.sources_used == ["historical"]
+
+
+async def test_blend_calls_flash_on_disagreement_over_25_percent() -> None:
+    """Strong + strong with >25% disagreement triggers the Flash reconciler."""
+
+    reconciler = AsyncMock(spec=FlashReconciler)
+    reconciler.reconcile.return_value = {
+        "recommended": 1.75,
+        "rationale": "weighted toward market because corridor is new",
+    }
+
+    result = await blend_async(
+        _historical(1.0, 20),
+        _market(2.0, 0.85),
+        flash_reconciler=reconciler,
+    )
+    assert result.value == 1.75
+    assert result.sources_used == ["historical", "market", "flash"]
+    assert "corridor is new" in result.rationale
+    reconciler.reconcile.assert_awaited_once()
+
+
+async def test_blend_async_does_not_call_flash_within_threshold() -> None:
+    reconciler = AsyncMock(spec=FlashReconciler)
+    reconciler.reconcile.return_value = {"recommended": 99.0, "rationale": "ignored"}
+
+    # Disagreement is ~10% — below the 25% threshold.
+    result = await blend_async(
+        _historical(1.0, 20),
+        _market(1.1, 0.85),
+        flash_reconciler=reconciler,
+    )
+    assert result.value == pytest.approx(0.7 + 0.33, rel=1e-3)
+    reconciler.reconcile.assert_not_called()
+
+
+async def test_blend_async_flash_failure_falls_back_to_default_weighted() -> None:
+    """When Flash raises or returns nothing, the deterministic blend is used."""
+
+    reconciler = AsyncMock(spec=FlashReconciler)
+    reconciler.reconcile.side_effect = RuntimeError("flash down")
+
+    result = await blend_async(
+        _historical(1.0, 20),
+        _market(2.0, 0.85),
+        flash_reconciler=reconciler,
+    )
+    # Falls back to 70/30 deterministic.
+    assert result.value == pytest.approx(1.3, rel=1e-6)
+    assert result.sources_used == ["historical", "market"]
+
+
+# ---------------------------------------------------------------------------
+# Wave C — fan_out_suggestions integration (historical + market)
+# ---------------------------------------------------------------------------
+
+
+def _market_field(
+    field_id: str,
+    *,
+    template: str = "median transaction fee for {corridor}",
+    max_age_seconds: int = 600,
+    confidence_threshold: float = 0.5,
+) -> dict[str, Any]:
+    return {
+        "id": field_id,
+        "label": field_id,
+        "type": "currency",
+        "required": False,
+        "suggestion": {
+            "mode": "proactive",
+            "sources": ["historical", "market"],
+            "historical": {
+                "aggregation": "median",
+                "filter_keys": ["corridor"],
+                "min_sample_size": 3,
+            },
+            "market": {
+                "research_query_template": template,
+                "max_age_seconds": max_age_seconds,
+            },
+            "confidence_threshold": confidence_threshold,
+        },
+    }
+
+
+class _StubGroundingClient:
+    """Drop-in for ``GeminiGroundingClient`` returning canned responses."""
+
+    configured = True
+
+    def __init__(self, responses: Mapping[str, dict[str, Any]]) -> None:
+        self._responses = responses
+        self.calls: list[str] = []
+
+    async def research(self, query: str, *, timeout_seconds: float) -> dict[str, Any]:  # noqa: ARG002
+        self.calls.append(query)
+        for key, response in self._responses.items():
+            if key in query:
+                return dict(response)
+        return {
+            "value": None,
+            "confidence": 0.0,
+            "summary": "research unavailable",
+            "citations": [],
+        }
+
+
+def _settings_for_blend() -> Settings:
+    return Settings(
+        gemini_api_key="fake-key",
+        web_research_timeout_seconds=1.0,
+        web_research_default_max_age_seconds=600,
+        web_research_estimated_cost_usd=0.01,
+        max_research_calls_per_run=5,
+        max_research_cost_per_run_usd=0.05,
+        web_research_disagreement_threshold=0.25,
+    )
+
+
+async def test_fan_out_suggestions_emits_blended_payload() -> None:
+    field = _market_field("default_transaction_fee")
+    step = _make_step([field])
+    contract = _make_contract([step])
+    historical_pf = _StubPriceFrame(
+        {
+            "default_transaction_fee": {
+                "value": 1.0,
+                "unit": "PCT_AMOUNT",
+                "sample_size": 12,
+                "range": {"min": 0.5, "max": 1.5},
+                "basis": {"aggregation": "median"},
+                "context_used": {"corridor": "USA-IND"},
+                "as_of": "2026-05-25T00:00:00Z",
+            }
+        }
+    )
+    grounding = _StubGroundingClient(
+        {
+            "USA-IND": {
+                "value": 1.1,
+                "confidence": 0.8,
+                "summary": "Market median around 1.1%",
+                "citations": [
+                    {"url": "https://example.com", "title": "Source", "snippet": "snip"}
+                ],
+            }
+        }
+    )
+
+    events = await fan_out_suggestions(
+        contract=contract,
+        step=step,
+        draft_state={"summary": {"corridor": "USA-IND"}},
+        auth_ctx=_AUTH,
+        priceframe=historical_pf,  # type: ignore[arg-type]
+        settings=_settings_for_blend(),
+        budget=RunBudget(),
+        cache=ResearchCache(),
+        grounding_client=grounding,  # type: ignore[arg-type]
+        flash_reconciler=None,
+    )
+
+    assert len(events) == 1
+    event = events[0]
+    assert event["event_type"] == EVENT_READY
+    payload = event["payload"]
+    assert payload["field_id"] == "default_transaction_fee"
+    assert payload["historical"]["value"] == 1.0
+    assert payload["market"]["value"] == 1.1
+    assert payload["market"]["citations"][0]["url"] == "https://example.com"
+    assert payload["proposed"]["sources_used"] == ["historical", "market"]
+    assert payload["proposed"]["value"] == pytest.approx(0.7 * 1.0 + 0.3 * 1.1, rel=1e-6)
+    assert "70/30" in payload["proposed"]["rationale"]
+
+
+async def test_fan_out_suggestions_emits_no_signal_when_both_bands_weak() -> None:
+    field = _market_field("default_transaction_fee", confidence_threshold=0.5)
+    step = _make_step([field])
+    contract = _make_contract([step])
+    historical_pf = _StubPriceFrame(
+        {
+            "default_transaction_fee": {
+                "value": None,
+                "unit": None,
+                "sample_size": 1,
+                "no_signal": True,
+            }
+        }
+    )
+    grounding = _StubGroundingClient(
+        {
+            "USA-IND": {
+                "value": None,
+                "confidence": 0.0,
+                "summary": "no data",
+                "citations": [],
+            }
+        }
+    )
+
+    events = await fan_out_suggestions(
+        contract=contract,
+        step=step,
+        draft_state={"summary": {"corridor": "USA-IND"}},
+        auth_ctx=_AUTH,
+        priceframe=historical_pf,  # type: ignore[arg-type]
+        settings=_settings_for_blend(),
+        budget=RunBudget(),
+        cache=ResearchCache(),
+        grounding_client=grounding,  # type: ignore[arg-type]
+        flash_reconciler=None,
+    )
+    assert len(events) == 1
+    assert events[0]["event_type"] == EVENT_NO_SIGNAL
+    assert events[0]["payload"]["reason"] == "confidence_below_threshold"
+
+
+async def test_fan_out_suggestions_budget_exhaustion_keeps_historical_only() -> None:
+    field = _market_field("default_transaction_fee")
+    step = _make_step([field])
+    contract = _make_contract([step])
+    historical_pf = _StubPriceFrame(
+        {
+            "default_transaction_fee": {
+                "value": 1.0,
+                "unit": "PCT_AMOUNT",
+                "sample_size": 12,
+                "context_used": {"corridor": "USA-IND"},
+                "as_of": "2026-05-25T00:00:00Z",
+            }
+        }
+    )
+    grounding = _StubGroundingClient(
+        {"USA-IND": {"value": 99.0, "confidence": 0.99, "summary": "x", "citations": []}}
+    )
+    budget = RunBudget(max_calls=0, max_cost_usd=0.05)  # immediately exhausted
+
+    events = await fan_out_suggestions(
+        contract=contract,
+        step=step,
+        draft_state={"summary": {"corridor": "USA-IND"}},
+        auth_ctx=_AUTH,
+        priceframe=historical_pf,  # type: ignore[arg-type]
+        settings=_settings_for_blend(),
+        budget=budget,
+        cache=ResearchCache(),
+        grounding_client=grounding,  # type: ignore[arg-type]
+        flash_reconciler=None,
+    )
+    assert len(events) == 1
+    payload = events[0]["payload"]
+    assert payload["historical"]["value"] == 1.0
+    # market band defaults to None (empty payload), so proposed comes from
+    # historical only.
+    assert payload["market"] is None or payload["market"].get("value") is None
+    assert payload["proposed"]["sources_used"] == ["historical"]
+    assert grounding.calls == []  # budget refused the call
+
+
+async def test_fan_out_suggestions_market_only_field_emits_blended_event() -> None:
+    """A field with only ``market`` in sources still produces a blended event."""
+
+    field = {
+        "id": "interbank_corridor_rate",
+        "label": "Interbank corridor rate",
+        "type": "currency",
+        "required": False,
+        "suggestion": {
+            "mode": "proactive",
+            "sources": ["market"],
+            "market": {
+                "research_query_template": "interbank rate for {corridor}",
+                "max_age_seconds": 600,
+            },
+            "confidence_threshold": 0.5,
+        },
+    }
+    step = _make_step([field])
+    contract = _make_contract([step])
+    historical_pf = _StubPriceFrame({})
+    grounding = _StubGroundingClient(
+        {
+            "USA-IND": {
+                "value": 83.4,
+                "confidence": 0.7,
+                "summary": "Interbank ~83.4 INR/USD",
+                "citations": [{"url": "https://rate", "title": "Rate", "snippet": "x"}],
+            }
+        }
+    )
+
+    events = await fan_out_suggestions(
+        contract=contract,
+        step=step,
+        draft_state={"summary": {"corridor": "USA-IND"}},
+        auth_ctx=_AUTH,
+        priceframe=historical_pf,  # type: ignore[arg-type]
+        settings=_settings_for_blend(),
+        budget=RunBudget(),
+        cache=ResearchCache(),
+        grounding_client=grounding,  # type: ignore[arg-type]
+        flash_reconciler=None,
+    )
+    assert len(events) == 1
+    payload = events[0]["payload"]
+    assert payload["proposed"]["sources_used"] == ["market"]
+    assert payload["proposed"]["value"] == 83.4
+
+
+def test_blend_result_serialization() -> None:
+    """``BlendResult.to_payload`` returns the proposed sub-payload shape."""
+
+    result = BlendResult(
+        no_signal=False,
+        value=1.5,
+        rationale="r",
+        sources_used=["historical", "market"],
+    )
+    assert result.to_payload() == {
+        "value": 1.5,
+        "rationale": "r",
+        "sources_used": ["historical", "market"],
+    }
