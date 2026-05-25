@@ -1,0 +1,1031 @@
+{
+  "version": 1,
+  "generated_with": "evals/suggestion_quality/build_fixture.py",
+  "quotes": [
+    {
+      "quote_id": 1000,
+      "corridor": "USA-IND",
+      "service": "C2C",
+      "customer_segment": "RETAIL",
+      "fields": {
+        "default_transaction_fee": 1.4713,
+        "default_fx_spread_percent": 0.4235,
+        "standard_commitment_fee": 669.2868,
+        "quoted_setup_price": 12369.2939,
+        "service_request_fee_reversal": 19.3604,
+        "emergency_funding_fee": 113.2661,
+        "tier_1_fee": 1.0411,
+        "tier_2_fee": 0.8325,
+        "tier_3_fee": 0.7238,
+        "target_margin_percent": 21.1665,
+        "target_gm_percent": 34.5447
+      }
+    },
+    {
+      "quote_id": 1001,
+      "corridor": "USA-IND",
+      "service": "C2C",
+      "customer_segment": "RETAIL",
+      "fields": {
+        "default_transaction_fee": 1.453,
+        "default_fx_spread_percent": 0.4136,
+        "standard_commitment_fee": 529.5898,
+        "quoted_setup_price": 12952.3371,
+        "service_request_fee_reversal": 21.514,
+        "emergency_funding_fee": 115.9962,
+        "tier_1_fee": 1.0793,
+        "tier_2_fee": 0.9032,
+        "tier_3_fee": 0.7529,
+        "target_margin_percent": 22.1604,
+        "target_gm_percent": 34.5261
+      }
+    },
+    {
+      "quote_id": 1002,
+      "corridor": "USA-IND",
+      "service": "C2C",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 1.4727,
+        "default_fx_spread_percent": 0.4822,
+        "standard_commitment_fee": 651.7106,
+        "quoted_setup_price": 11837.9374,
+        "service_request_fee_reversal": 19.292,
+        "emergency_funding_fee": 125.2501,
+        "tier_1_fee": 1.0215,
+        "tier_2_fee": 0.9584,
+        "tier_3_fee": 0.6861,
+        "target_margin_percent": 20.639,
+        "target_gm_percent": 31.0078
+      }
+    },
+    {
+      "quote_id": 1003,
+      "corridor": "USA-IND",
+      "service": "C2C",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 1.3895,
+        "default_fx_spread_percent": 0.4165,
+        "standard_commitment_fee": 637.3316,
+        "quoted_setup_price": 11355.7573,
+        "service_request_fee_reversal": 21.7851,
+        "emergency_funding_fee": 110.8058,
+        "tier_1_fee": 1.0737,
+        "tier_2_fee": 0.9669,
+        "tier_3_fee": 0.6903,
+        "target_margin_percent": 23.908,
+        "target_gm_percent": 32.0486
+      }
+    },
+    {
+      "quote_id": 1004,
+      "corridor": "USA-IND",
+      "service": "C2C",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 1.3582,
+        "default_fx_spread_percent": 0.4695,
+        "standard_commitment_fee": 606.3671,
+        "quoted_setup_price": 11409.0304,
+        "service_request_fee_reversal": 19.5314,
+        "emergency_funding_fee": 123.3259,
+        "tier_1_fee": 1.1402,
+        "tier_2_fee": 0.8235,
+        "tier_3_fee": 0.7394,
+        "target_margin_percent": 20.0897,
+        "target_gm_percent": 34.4049
+      }
+    },
+    {
+      "quote_id": 1005,
+      "corridor": "USA-IND",
+      "service": "C2C",
+      "customer_segment": "RETAIL",
+      "fields": {
+        "default_transaction_fee": 1.5482,
+        "default_fx_spread_percent": 0.4707,
+        "standard_commitment_fee": 556.8679,
+        "quoted_setup_price": 12664.6598,
+        "service_request_fee_reversal": 20.9108,
+        "emergency_funding_fee": 120.437,
+        "tier_1_fee": 1.0992,
+        "tier_2_fee": 0.9464,
+        "tier_3_fee": 0.6456,
+        "target_margin_percent": 20.343,
+        "target_gm_percent": 33.0338
+      }
+    },
+    {
+      "quote_id": 1006,
+      "corridor": "USA-PHL",
+      "service": "C2C",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 1.2894,
+        "default_fx_spread_percent": 0.488,
+        "standard_commitment_fee": 570.5117,
+        "quoted_setup_price": 12269.9081,
+        "service_request_fee_reversal": 18.3822,
+        "emergency_funding_fee": 112.4618,
+        "tier_1_fee": 1.1438,
+        "tier_2_fee": 0.8764,
+        "tier_3_fee": 0.6454,
+        "target_margin_percent": 22.759,
+        "target_gm_percent": 31.8623
+      }
+    },
+    {
+      "quote_id": 1007,
+      "corridor": "USA-PHL",
+      "service": "C2C",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 1.2621,
+        "default_fx_spread_percent": 0.4319,
+        "standard_commitment_fee": 556.88,
+        "quoted_setup_price": 11357.2129,
+        "service_request_fee_reversal": 21.6088,
+        "emergency_funding_fee": 118.966,
+        "tier_1_fee": 1.1436,
+        "tier_2_fee": 0.8516,
+        "tier_3_fee": 0.6443,
+        "target_margin_percent": 21.4872,
+        "target_gm_percent": 32.5824
+      }
+    },
+    {
+      "quote_id": 1008,
+      "corridor": "USA-PHL",
+      "service": "C2C",
+      "customer_segment": "RETAIL",
+      "fields": {
+        "default_transaction_fee": 1.4574,
+        "default_fx_spread_percent": 0.4915,
+        "standard_commitment_fee": 587.9506,
+        "quoted_setup_price": 12571.9462,
+        "service_request_fee_reversal": 19.2099,
+        "emergency_funding_fee": 121.8409,
+        "tier_1_fee": 1.0071,
+        "tier_2_fee": 0.8951,
+        "tier_3_fee": 0.6602,
+        "target_margin_percent": 20.3703,
+        "target_gm_percent": 30.8927
+      }
+    },
+    {
+      "quote_id": 1009,
+      "corridor": "USA-PHL",
+      "service": "C2C",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 1.5406,
+        "default_fx_spread_percent": 0.4457,
+        "standard_commitment_fee": 642.493,
+        "quoted_setup_price": 12051.3454,
+        "service_request_fee_reversal": 21.9662,
+        "emergency_funding_fee": 121.4808,
+        "tier_1_fee": 1.1891,
+        "tier_2_fee": 0.8205,
+        "tier_3_fee": 0.6936,
+        "target_margin_percent": 23.2165,
+        "target_gm_percent": 33.0973
+      }
+    },
+    {
+      "quote_id": 1010,
+      "corridor": "USA-PHL",
+      "service": "C2C",
+      "customer_segment": "RETAIL",
+      "fields": {
+        "default_transaction_fee": 1.3031,
+        "default_fx_spread_percent": 0.4771,
+        "standard_commitment_fee": 580.0924,
+        "quoted_setup_price": 12638.831,
+        "service_request_fee_reversal": 19.1957,
+        "emergency_funding_fee": 124.6691,
+        "tier_1_fee": 1.1085,
+        "tier_2_fee": 0.8945,
+        "tier_3_fee": 0.7378,
+        "target_margin_percent": 23.554,
+        "target_gm_percent": 34.7912
+      }
+    },
+    {
+      "quote_id": 1011,
+      "corridor": "USA-MEX",
+      "service": "C2C",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 0.5991,
+        "default_fx_spread_percent": 0.2581,
+        "standard_commitment_fee": 230.7944,
+        "quoted_setup_price": 4625.014,
+        "service_request_fee_reversal": 11.7524,
+        "emergency_funding_fee": 55.9105,
+        "tier_1_fee": 0.4263,
+        "tier_2_fee": 0.3591,
+        "tier_3_fee": 0.2459,
+        "target_margin_percent": 12.5907,
+        "target_gm_percent": 17.8335
+      }
+    },
+    {
+      "quote_id": 1012,
+      "corridor": "USA-MEX",
+      "service": "C2C",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 0.5444,
+        "default_fx_spread_percent": 0.2545,
+        "standard_commitment_fee": 320.0886,
+        "quoted_setup_price": 4576.9798,
+        "service_request_fee_reversal": 8.3062,
+        "emergency_funding_fee": 45.9742,
+        "tier_1_fee": 0.5069,
+        "tier_2_fee": 0.4763,
+        "tier_3_fee": 0.3564,
+        "target_margin_percent": 11.9633,
+        "target_gm_percent": 20.4331
+      }
+    },
+    {
+      "quote_id": 1013,
+      "corridor": "USA-MEX",
+      "service": "C2C",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 0.4908,
+        "default_fx_spread_percent": 0.2143,
+        "standard_commitment_fee": 177.1194,
+        "quoted_setup_price": 4307.7395,
+        "service_request_fee_reversal": 9.1573,
+        "emergency_funding_fee": 48.0068,
+        "tier_1_fee": 0.5193,
+        "tier_2_fee": 0.4391,
+        "tier_3_fee": 0.2838,
+        "target_margin_percent": 12.1321,
+        "target_gm_percent": 19.1475
+      }
+    },
+    {
+      "quote_id": 1014,
+      "corridor": "USA-MEX",
+      "service": "C2C",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 0.473,
+        "default_fx_spread_percent": 0.2959,
+        "standard_commitment_fee": 208.0585,
+        "quoted_setup_price": 5375.2859,
+        "service_request_fee_reversal": 10.3412,
+        "emergency_funding_fee": 48.7408,
+        "tier_1_fee": 0.4724,
+        "tier_2_fee": 0.4691,
+        "tier_3_fee": 0.2862,
+        "target_margin_percent": 10.0881,
+        "target_gm_percent": 20.0072
+      }
+    },
+    {
+      "quote_id": 1015,
+      "corridor": "USA-MEX",
+      "service": "C2C",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 0.4609,
+        "default_fx_spread_percent": 0.2102,
+        "standard_commitment_fee": 184.6348,
+        "quoted_setup_price": 4252.6674,
+        "service_request_fee_reversal": 8.568,
+        "emergency_funding_fee": 48.3601,
+        "tier_1_fee": 0.4823,
+        "tier_2_fee": 0.3514,
+        "tier_3_fee": 0.3582,
+        "target_margin_percent": 12.9049,
+        "target_gm_percent": 15.4875
+      }
+    },
+    {
+      "quote_id": 1016,
+      "corridor": "GBR-NGA",
+      "service": "B2B",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 2.5291,
+        "default_fx_spread_percent": 0.8195,
+        "standard_commitment_fee": 1497.3426,
+        "quoted_setup_price": 24335.9994,
+        "service_request_fee_reversal": 38.2589,
+        "emergency_funding_fee": 249.1807,
+        "tier_1_fee": 2.0959,
+        "tier_2_fee": 1.7418,
+        "tier_3_fee": 1.3517,
+        "target_margin_percent": 35.7716,
+        "target_gm_percent": 47.55
+      }
+    },
+    {
+      "quote_id": 1017,
+      "corridor": "GBR-NGA",
+      "service": "B2B",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 2.4294,
+        "default_fx_spread_percent": 0.8775,
+        "standard_commitment_fee": 1461.8813,
+        "quoted_setup_price": 25104.8697,
+        "service_request_fee_reversal": 39.3535,
+        "emergency_funding_fee": 241.5549,
+        "tier_1_fee": 2.0414,
+        "tier_2_fee": 1.6974,
+        "tier_3_fee": 1.4505,
+        "target_margin_percent": 34.0228,
+        "target_gm_percent": 49.2704
+      }
+    },
+    {
+      "quote_id": 1018,
+      "corridor": "GBR-NGA",
+      "service": "B2B",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 2.279,
+        "default_fx_spread_percent": 0.8163,
+        "standard_commitment_fee": 1443.0396,
+        "quoted_setup_price": 24061.0915,
+        "service_request_fee_reversal": 38.8213,
+        "emergency_funding_fee": 249.768,
+        "tier_1_fee": 1.9839,
+        "tier_2_fee": 1.6233,
+        "tier_3_fee": 1.4117,
+        "target_margin_percent": 35.1001,
+        "target_gm_percent": 49.5502
+      }
+    },
+    {
+      "quote_id": 1019,
+      "corridor": "GBR-NGA",
+      "service": "B2B",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 2.3634,
+        "default_fx_spread_percent": 0.8727,
+        "standard_commitment_fee": 1516.8522,
+        "quoted_setup_price": 24094.45,
+        "service_request_fee_reversal": 40.1499,
+        "emergency_funding_fee": 253.5982,
+        "tier_1_fee": 1.9684,
+        "tier_2_fee": 1.7548,
+        "tier_3_fee": 1.4387,
+        "target_margin_percent": 34.1408,
+        "target_gm_percent": 45.0351
+      }
+    },
+    {
+      "quote_id": 1020,
+      "corridor": "GBR-NGA",
+      "service": "B2B",
+      "customer_segment": "RETAIL",
+      "fields": {
+        "default_transaction_fee": 2.3376,
+        "default_fx_spread_percent": 0.8687,
+        "standard_commitment_fee": 1479.4699,
+        "quoted_setup_price": 24030.5327,
+        "service_request_fee_reversal": 41.7021,
+        "emergency_funding_fee": 245.3884,
+        "tier_1_fee": 1.9597,
+        "tier_2_fee": 1.6628,
+        "tier_3_fee": 1.4024,
+        "target_margin_percent": 36.0606,
+        "target_gm_percent": 48.2351
+      }
+    },
+    {
+      "quote_id": 1021,
+      "corridor": "GBR-IND",
+      "service": "C2C",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 1.3012,
+        "default_fx_spread_percent": 0.4479,
+        "standard_commitment_fee": 606.3374,
+        "quoted_setup_price": 12878.4808,
+        "service_request_fee_reversal": 19.9771,
+        "emergency_funding_fee": 129.1764,
+        "tier_1_fee": 1.1184,
+        "tier_2_fee": 0.8319,
+        "tier_3_fee": 0.7359,
+        "target_margin_percent": 22.3385,
+        "target_gm_percent": 30.5449
+      }
+    },
+    {
+      "quote_id": 1022,
+      "corridor": "GBR-IND",
+      "service": "C2C",
+      "customer_segment": "RETAIL",
+      "fields": {
+        "default_transaction_fee": 1.4463,
+        "default_fx_spread_percent": 0.4901,
+        "standard_commitment_fee": 627.945,
+        "quoted_setup_price": 12886.0036,
+        "service_request_fee_reversal": 20.3168,
+        "emergency_funding_fee": 113.1529,
+        "tier_1_fee": 1.1782,
+        "tier_2_fee": 0.9686,
+        "tier_3_fee": 0.6497,
+        "target_margin_percent": 20.3048,
+        "target_gm_percent": 34.6531
+      }
+    },
+    {
+      "quote_id": 1023,
+      "corridor": "GBR-IND",
+      "service": "C2C",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 1.3051,
+        "default_fx_spread_percent": 0.4094,
+        "standard_commitment_fee": 592.0285,
+        "quoted_setup_price": 11937.3979,
+        "service_request_fee_reversal": 18.7832,
+        "emergency_funding_fee": 118.0976,
+        "tier_1_fee": 1.067,
+        "tier_2_fee": 0.8937,
+        "tier_3_fee": 0.6921,
+        "target_margin_percent": 23.8917,
+        "target_gm_percent": 32.7067
+      }
+    },
+    {
+      "quote_id": 1024,
+      "corridor": "GBR-IND",
+      "service": "C2C",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 1.539,
+        "default_fx_spread_percent": 0.4803,
+        "standard_commitment_fee": 660.3191,
+        "quoted_setup_price": 12800.0218,
+        "service_request_fee_reversal": 20.4113,
+        "emergency_funding_fee": 126.7166,
+        "tier_1_fee": 1.075,
+        "tier_2_fee": 0.9588,
+        "tier_3_fee": 0.7123,
+        "target_margin_percent": 22.8701,
+        "target_gm_percent": 29.6636
+      }
+    },
+    {
+      "quote_id": 1025,
+      "corridor": "GBR-IND",
+      "service": "C2C",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 1.3203,
+        "default_fx_spread_percent": 0.4471,
+        "standard_commitment_fee": 634.9536,
+        "quoted_setup_price": 11477.6166,
+        "service_request_fee_reversal": 18.7995,
+        "emergency_funding_fee": 127.2749,
+        "tier_1_fee": 1.1776,
+        "tier_2_fee": 0.9249,
+        "tier_3_fee": 0.7281,
+        "target_margin_percent": 22.8986,
+        "target_gm_percent": 34.1625
+      }
+    },
+    {
+      "quote_id": 1026,
+      "corridor": "ARE-IND",
+      "service": "B2B",
+      "customer_segment": "RETAIL",
+      "fields": {
+        "default_transaction_fee": 1.2738,
+        "default_fx_spread_percent": 0.4579,
+        "standard_commitment_fee": 648.3002,
+        "quoted_setup_price": 12064.6932,
+        "service_request_fee_reversal": 18.5063,
+        "emergency_funding_fee": 113.0086,
+        "tier_1_fee": 1.0925,
+        "tier_2_fee": 0.9346,
+        "tier_3_fee": 0.7058,
+        "target_margin_percent": 23.1033,
+        "target_gm_percent": 31.818
+      }
+    },
+    {
+      "quote_id": 1027,
+      "corridor": "ARE-IND",
+      "service": "B2B",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 1.3898,
+        "default_fx_spread_percent": 0.4735,
+        "standard_commitment_fee": 638.315,
+        "quoted_setup_price": 12309.6273,
+        "service_request_fee_reversal": 20.1225,
+        "emergency_funding_fee": 126.3754,
+        "tier_1_fee": 1.0085,
+        "tier_2_fee": 0.8729,
+        "tier_3_fee": 0.7299,
+        "target_margin_percent": 22.4333,
+        "target_gm_percent": 33.1164
+      }
+    },
+    {
+      "quote_id": 1028,
+      "corridor": "ARE-IND",
+      "service": "B2B",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 1.5339,
+        "default_fx_spread_percent": 0.4817,
+        "standard_commitment_fee": 570.8538,
+        "quoted_setup_price": 12766.9972,
+        "service_request_fee_reversal": 20.0656,
+        "emergency_funding_fee": 123.8133,
+        "tier_1_fee": 1.0928,
+        "tier_2_fee": 0.833,
+        "tier_3_fee": 0.6846,
+        "target_margin_percent": 22.6488,
+        "target_gm_percent": 33.52
+      }
+    },
+    {
+      "quote_id": 1029,
+      "corridor": "ARE-IND",
+      "service": "B2B",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 1.3565,
+        "default_fx_spread_percent": 0.4165,
+        "standard_commitment_fee": 562.8379,
+        "quoted_setup_price": 11325.9368,
+        "service_request_fee_reversal": 19.7834,
+        "emergency_funding_fee": 120.8234,
+        "tier_1_fee": 1.1986,
+        "tier_2_fee": 0.9507,
+        "tier_3_fee": 0.7186,
+        "target_margin_percent": 20.2413,
+        "target_gm_percent": 34.1847
+      }
+    },
+    {
+      "quote_id": 1030,
+      "corridor": "ARE-PAK",
+      "service": "C2C",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 1.4532,
+        "default_fx_spread_percent": 0.4559,
+        "standard_commitment_fee": 660.1174,
+        "quoted_setup_price": 12067.596,
+        "service_request_fee_reversal": 19.8874,
+        "emergency_funding_fee": 123.5512,
+        "tier_1_fee": 1.1987,
+        "tier_2_fee": 0.8509,
+        "tier_3_fee": 0.6549,
+        "target_margin_percent": 21.9644,
+        "target_gm_percent": 31.8836
+      }
+    },
+    {
+      "quote_id": 1031,
+      "corridor": "ARE-PAK",
+      "service": "C2C",
+      "customer_segment": "RETAIL",
+      "fields": {
+        "default_transaction_fee": 1.3953,
+        "default_fx_spread_percent": 0.418,
+        "standard_commitment_fee": 603.5908,
+        "quoted_setup_price": 11472.9301,
+        "service_request_fee_reversal": 21.8683,
+        "emergency_funding_fee": 120.7665,
+        "tier_1_fee": 1.0012,
+        "tier_2_fee": 0.9065,
+        "tier_3_fee": 0.6561,
+        "target_margin_percent": 23.0031,
+        "target_gm_percent": 31.8395
+      }
+    },
+    {
+      "quote_id": 1032,
+      "corridor": "ARE-PAK",
+      "service": "C2C",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 1.4714,
+        "default_fx_spread_percent": 0.4862,
+        "standard_commitment_fee": 653.3434,
+        "quoted_setup_price": 12561.8337,
+        "service_request_fee_reversal": 21.715,
+        "emergency_funding_fee": 118.544,
+        "tier_1_fee": 1.0643,
+        "tier_2_fee": 0.8987,
+        "tier_3_fee": 0.6761,
+        "target_margin_percent": 21.4506,
+        "target_gm_percent": 34.4747
+      }
+    },
+    {
+      "quote_id": 1033,
+      "corridor": "ARE-PAK",
+      "service": "C2C",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 1.3872,
+        "default_fx_spread_percent": 0.4508,
+        "standard_commitment_fee": 663.5236,
+        "quoted_setup_price": 12200.2511,
+        "service_request_fee_reversal": 19.5398,
+        "emergency_funding_fee": 115.2454,
+        "tier_1_fee": 1.0081,
+        "tier_2_fee": 0.9226,
+        "tier_3_fee": 0.7438,
+        "target_margin_percent": 21.1629,
+        "target_gm_percent": 32.4084
+      }
+    },
+    {
+      "quote_id": 1034,
+      "corridor": "CAN-IND",
+      "service": "B2B",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 2.2635,
+        "default_fx_spread_percent": 0.8672,
+        "standard_commitment_fee": 1473.0544,
+        "quoted_setup_price": 24230.5929,
+        "service_request_fee_reversal": 40.3425,
+        "emergency_funding_fee": 254.2534,
+        "tier_1_fee": 2.0602,
+        "tier_2_fee": 1.6628,
+        "tier_3_fee": 1.3663,
+        "target_margin_percent": 35.213,
+        "target_gm_percent": 48.5803
+      }
+    },
+    {
+      "quote_id": 1035,
+      "corridor": "CAN-IND",
+      "service": "B2B",
+      "customer_segment": "RETAIL",
+      "fields": {
+        "default_transaction_fee": 2.3473,
+        "default_fx_spread_percent": 0.8112,
+        "standard_commitment_fee": 1441.6779,
+        "quoted_setup_price": 25796.1856,
+        "service_request_fee_reversal": 41.638,
+        "emergency_funding_fee": 253.7184,
+        "tier_1_fee": 1.9626,
+        "tier_2_fee": 1.7475,
+        "tier_3_fee": 1.3684,
+        "target_margin_percent": 33.1247,
+        "target_gm_percent": 50.0076
+      }
+    },
+    {
+      "quote_id": 1036,
+      "corridor": "CAN-IND",
+      "service": "B2B",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 2.2734,
+        "default_fx_spread_percent": 0.8503,
+        "standard_commitment_fee": 1546.9811,
+        "quoted_setup_price": 24286.8948,
+        "service_request_fee_reversal": 41.5113,
+        "emergency_funding_fee": 247.3388,
+        "tier_1_fee": 1.9807,
+        "tier_2_fee": 1.675,
+        "tier_3_fee": 1.4178,
+        "target_margin_percent": 33.0162,
+        "target_gm_percent": 49.0536
+      }
+    },
+    {
+      "quote_id": 1037,
+      "corridor": "CAN-IND",
+      "service": "B2B",
+      "customer_segment": "RETAIL",
+      "fields": {
+        "default_transaction_fee": 2.5154,
+        "default_fx_spread_percent": 0.8988,
+        "standard_commitment_fee": 1465.6341,
+        "quoted_setup_price": 25318.2542,
+        "service_request_fee_reversal": 39.8915,
+        "emergency_funding_fee": 243.336,
+        "tier_1_fee": 2.0619,
+        "tier_2_fee": 1.7455,
+        "tier_3_fee": 1.4085,
+        "target_margin_percent": 34.9829,
+        "target_gm_percent": 45.4031
+      }
+    },
+    {
+      "quote_id": 1038,
+      "corridor": "AUS-PHL",
+      "service": "C2C",
+      "customer_segment": "RETAIL",
+      "fields": {
+        "default_transaction_fee": 2.2782,
+        "default_fx_spread_percent": 0.8794,
+        "standard_commitment_fee": 1540.534,
+        "quoted_setup_price": 25676.4234,
+        "service_request_fee_reversal": 40.5374,
+        "emergency_funding_fee": 250.3802,
+        "tier_1_fee": 1.9584,
+        "tier_2_fee": 1.7383,
+        "tier_3_fee": 1.4092,
+        "target_margin_percent": 33.1889,
+        "target_gm_percent": 47.1098
+      }
+    },
+    {
+      "quote_id": 1039,
+      "corridor": "AUS-PHL",
+      "service": "C2C",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 2.3432,
+        "default_fx_spread_percent": 0.8758,
+        "standard_commitment_fee": 1499.8589,
+        "quoted_setup_price": 24959.2376,
+        "service_request_fee_reversal": 38.2354,
+        "emergency_funding_fee": 248.4636,
+        "tier_1_fee": 1.9452,
+        "tier_2_fee": 1.7158,
+        "tier_3_fee": 1.3852,
+        "target_margin_percent": 36.6857,
+        "target_gm_percent": 46.0998
+      }
+    },
+    {
+      "quote_id": 1040,
+      "corridor": "AUS-PHL",
+      "service": "C2C",
+      "customer_segment": "RETAIL",
+      "fields": {
+        "default_transaction_fee": 2.3313,
+        "default_fx_spread_percent": 0.8363,
+        "standard_commitment_fee": 1481.9968,
+        "quoted_setup_price": 25465.7897,
+        "service_request_fee_reversal": 38.5594,
+        "emergency_funding_fee": 242.0268,
+        "tier_1_fee": 1.9989,
+        "tier_2_fee": 1.7067,
+        "tier_3_fee": 1.3744,
+        "target_margin_percent": 34.6176,
+        "target_gm_percent": 48.747
+      }
+    },
+    {
+      "quote_id": 1041,
+      "corridor": "AUS-PHL",
+      "service": "C2C",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 2.3232,
+        "default_fx_spread_percent": 0.8116,
+        "standard_commitment_fee": 1517.2262,
+        "quoted_setup_price": 24128.4332,
+        "service_request_fee_reversal": 38.5281,
+        "emergency_funding_fee": 251.5812,
+        "tier_1_fee": 1.9437,
+        "tier_2_fee": 1.636,
+        "tier_3_fee": 1.4122,
+        "target_margin_percent": 35.1897,
+        "target_gm_percent": 50.1995
+      }
+    },
+    {
+      "quote_id": 1042,
+      "corridor": "SAU-EGY",
+      "service": "C2C",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 0.459,
+        "default_fx_spread_percent": 0.2704,
+        "standard_commitment_fee": 271.8613,
+        "quoted_setup_price": 5967.0046,
+        "service_request_fee_reversal": 9.1959,
+        "emergency_funding_fee": 56.7198,
+        "tier_1_fee": 0.5265,
+        "tier_2_fee": 0.3963,
+        "tier_3_fee": 0.2732,
+        "target_margin_percent": 10.7172,
+        "target_gm_percent": 20.9491
+      }
+    },
+    {
+      "quote_id": 1043,
+      "corridor": "SAU-EGY",
+      "service": "C2C",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 0.484,
+        "default_fx_spread_percent": 0.2039,
+        "standard_commitment_fee": 178.8567,
+        "quoted_setup_price": 5372.346,
+        "service_request_fee_reversal": 8.1593,
+        "emergency_funding_fee": 48.9869,
+        "tier_1_fee": 0.5416,
+        "tier_2_fee": 0.4434,
+        "tier_3_fee": 0.2775,
+        "target_margin_percent": 13.2372,
+        "target_gm_percent": 18.5544
+      }
+    },
+    {
+      "quote_id": 1044,
+      "corridor": "SAU-EGY",
+      "service": "C2C",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 0.5811,
+        "default_fx_spread_percent": 0.2413,
+        "standard_commitment_fee": 324.5386,
+        "quoted_setup_price": 5392.5272,
+        "service_request_fee_reversal": 9.0071,
+        "emergency_funding_fee": 48.7637,
+        "tier_1_fee": 0.5663,
+        "tier_2_fee": 0.3244,
+        "tier_3_fee": 0.3114,
+        "target_margin_percent": 12.1599,
+        "target_gm_percent": 18.8873
+      }
+    },
+    {
+      "quote_id": 1045,
+      "corridor": "SAU-EGY",
+      "service": "C2C",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 0.5965,
+        "default_fx_spread_percent": 0.2953,
+        "standard_commitment_fee": 221.549,
+        "quoted_setup_price": 5171.4338,
+        "service_request_fee_reversal": 8.0692,
+        "emergency_funding_fee": 46.3344,
+        "tier_1_fee": 0.5601,
+        "tier_2_fee": 0.4126,
+        "tier_3_fee": 0.3001,
+        "target_margin_percent": 12.3687,
+        "target_gm_percent": 18.3598
+      }
+    },
+    {
+      "quote_id": 1046,
+      "corridor": "DEU-TUR",
+      "service": "B2B",
+      "customer_segment": "RETAIL",
+      "fields": {
+        "default_transaction_fee": 2.5262,
+        "default_fx_spread_percent": 0.8075,
+        "standard_commitment_fee": 1460.1733,
+        "quoted_setup_price": 24028.4399,
+        "service_request_fee_reversal": 39.3399,
+        "emergency_funding_fee": 248.7033,
+        "tier_1_fee": 1.9586,
+        "tier_2_fee": 1.6423,
+        "tier_3_fee": 1.4062,
+        "target_margin_percent": 36.823,
+        "target_gm_percent": 45.4101
+      }
+    },
+    {
+      "quote_id": 1047,
+      "corridor": "DEU-TUR",
+      "service": "B2B",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 2.4238,
+        "default_fx_spread_percent": 0.8248,
+        "standard_commitment_fee": 1502.1584,
+        "quoted_setup_price": 25802.045,
+        "service_request_fee_reversal": 40.6285,
+        "emergency_funding_fee": 246.8895,
+        "tier_1_fee": 1.9205,
+        "tier_2_fee": 1.6789,
+        "tier_3_fee": 1.354,
+        "target_margin_percent": 36.4889,
+        "target_gm_percent": 48.9852
+      }
+    },
+    {
+      "quote_id": 1048,
+      "corridor": "JPN-VNM",
+      "service": "C2C",
+      "customer_segment": "ENTERPRISE",
+      "fields": {
+        "default_transaction_fee": 2.43,
+        "default_fx_spread_percent": 0.8291,
+        "standard_commitment_fee": 1523.1582,
+        "quoted_setup_price": 24820.447,
+        "service_request_fee_reversal": 40.2514,
+        "emergency_funding_fee": 248.4414,
+        "tier_1_fee": 2.0913,
+        "tier_2_fee": 1.6717,
+        "tier_3_fee": 1.3877,
+        "target_margin_percent": 36.1515,
+        "target_gm_percent": 50.0369
+      }
+    },
+    {
+      "quote_id": 1049,
+      "corridor": "JPN-VNM",
+      "service": "C2C",
+      "customer_segment": "MID_MARKET",
+      "fields": {
+        "default_transaction_fee": 2.2644,
+        "default_fx_spread_percent": 0.846,
+        "standard_commitment_fee": 1557.9957,
+        "quoted_setup_price": 24959.0371,
+        "service_request_fee_reversal": 41.7701,
+        "emergency_funding_fee": 253.487,
+        "tier_1_fee": 1.9971,
+        "tier_2_fee": 1.6948,
+        "tier_3_fee": 1.4573,
+        "target_margin_percent": 33.7459,
+        "target_gm_percent": 50.3753
+      }
+    }
+  ],
+  "suggestable_fields": [
+    "default_transaction_fee",
+    "default_fx_spread_percent",
+    "standard_commitment_fee",
+    "quoted_setup_price",
+    "service_request_fee_reversal",
+    "emergency_funding_fee",
+    "tier_1_fee",
+    "tier_2_fee",
+    "tier_3_fee",
+    "target_margin_percent",
+    "target_gm_percent"
+  ],
+  "corridor_metadata": {
+    "USA-IND": {
+      "band": "mid",
+      "quote_count": 6,
+      "service": "C2C"
+    },
+    "USA-PHL": {
+      "band": "mid",
+      "quote_count": 5,
+      "service": "C2C"
+    },
+    "USA-MEX": {
+      "band": "low",
+      "quote_count": 5,
+      "service": "C2C"
+    },
+    "GBR-NGA": {
+      "band": "high",
+      "quote_count": 5,
+      "service": "B2B"
+    },
+    "GBR-IND": {
+      "band": "mid",
+      "quote_count": 5,
+      "service": "C2C"
+    },
+    "ARE-IND": {
+      "band": "mid",
+      "quote_count": 4,
+      "service": "B2B"
+    },
+    "ARE-PAK": {
+      "band": "mid",
+      "quote_count": 4,
+      "service": "C2C"
+    },
+    "CAN-IND": {
+      "band": "high",
+      "quote_count": 4,
+      "service": "B2B"
+    },
+    "AUS-PHL": {
+      "band": "high",
+      "quote_count": 4,
+      "service": "C2C"
+    },
+    "SAU-EGY": {
+      "band": "low",
+      "quote_count": 4,
+      "service": "C2C"
+    },
+    "DEU-TUR": {
+      "band": "high",
+      "quote_count": 2,
+      "service": "B2B"
+    },
+    "JPN-VNM": {
+      "band": "high",
+      "quote_count": 2,
+      "service": "C2C"
+    }
+  }
+}
