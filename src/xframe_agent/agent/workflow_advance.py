@@ -41,7 +41,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xframe_agent.agent.events import append_run_event
-from xframe_agent.agent.suggestions import emit_historical_suggestions
+from xframe_agent.agent.suggestions import emit_suggestions
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.models import (
     AgentRun,
@@ -532,7 +532,7 @@ async def emit_step_entered_with_suggestions(
         payload=step_entered_payload(contract, step),
     )
     try:
-        await emit_historical_suggestions(
+        await emit_suggestions(
             session,
             run_id=run_id,
             contract=contract,

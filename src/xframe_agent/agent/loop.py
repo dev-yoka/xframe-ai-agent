@@ -31,7 +31,7 @@ from xframe_agent.agent.guided_workflows import (
     parse_create_pricing_request_submission,
 )
 from xframe_agent.agent.redaction import redact
-from xframe_agent.agent.suggestions import emit_historical_suggestions
+from xframe_agent.agent.suggestions import emit_suggestions
 from xframe_agent.agent.workflow_advance import (
     StepAdvanceError,
     get_step,
@@ -483,7 +483,7 @@ class AgentLoop:
             return
         try:
             async with PriceFrameClient.from_settings(self._settings) as priceframe:
-                await emit_historical_suggestions(
+                await emit_suggestions(
                     session,
                     run_id=run_id,
                     contract=contract,
@@ -491,6 +491,7 @@ class AgentLoop:
                     draft_state={},
                     auth_ctx=context,
                     priceframe=priceframe,
+                    settings=self._settings,
                 )
         except Exception:  # noqa: BLE001 - suggestions are best-effort
             return

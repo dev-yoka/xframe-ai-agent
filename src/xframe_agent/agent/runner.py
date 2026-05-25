@@ -36,7 +36,7 @@ from xframe_agent.agent.guided_workflows import (
 )
 from xframe_agent.agent.prompts.create_pricing_request import get_system_prompt
 from xframe_agent.agent.redaction import redact
-from xframe_agent.agent.suggestions import emit_historical_suggestions
+from xframe_agent.agent.suggestions import emit_suggestions
 from xframe_agent.agent.workflow_advance import (
     StepAdvanceError,
     get_step,
@@ -90,7 +90,7 @@ async def _fanout_initial_step_suggestions(
     if step is None:
         return
     try:
-        await emit_historical_suggestions(
+        await emit_suggestions(
             session,
             run_id=run_id,
             contract=contract,
