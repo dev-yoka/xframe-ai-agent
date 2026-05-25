@@ -192,6 +192,47 @@ class GetFieldSuggestionsTool(ToolDefinition[FieldSuggestionsInput, JsonOutput])
         )
 
 
+class ApprovalGuidelinesInput(BaseModel):
+    """Optional filters for the approval-guidelines read tool."""
+
+    category: str | None = Field(default=None, max_length=60)
+    currency: str | None = Field(default=None, min_length=3, max_length=8)
+
+
+class GetApprovalGuidelinesTool(ToolDefinition[ApprovalGuidelinesInput, JsonOutput]):
+    name = "get_approval_guidelines"
+    description = (
+        "Fetch the active PriceFRAME approval guidelines (GM thresholds, "
+        "FX-margin floors, committed-revenue minimums, etc.). Optional `category` "
+        "and `currency` filters narrow the catalogue. Use this to anchor approval "
+        "rationale and explain to the user why a quote needs sign-off."
+    )
+    input_model = ApprovalGuidelinesInput
+    output_model = JsonOutput
+    permission = "agent.approvals.submit"
+    risk = "READ"
+    cost_class = "cheap"
+
+    async def _execute(
+        self,
+        args: ApprovalGuidelinesInput,
+        ctx: AuthContext,
+        priceframe: PriceFrameClient,
+    ) -> JsonOutput:
+        params: dict[str, Any] = {}
+        if args.category:
+            params["category"] = args.category
+        if args.currency:
+            params["currency"] = args.currency.upper()
+        return JsonOutput(
+            data=await priceframe.get_json(
+                "/api/v1/agent/approval-guidelines",
+                jwt_raw=ctx.jwt_raw,
+                params=params,
+            )
+        )
+
+
 class RecalculateQuoteAggregatesTool(ToolDefinition[IdInput, JsonOutput]):
     name = "recalculate_quote_aggregates"
     description = "Ask PriceFRAME to recalculate quotation aggregate values."

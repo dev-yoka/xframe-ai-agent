@@ -7,6 +7,7 @@ from typing import Any
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.tools.base import ToolDefinition
 from xframe_agent.tools.priceframe_read import (
+    GetApprovalGuidelinesTool,
     GetCurrencyRateTool,
     GetFieldSuggestionsTool,
     GetQuotationTool,
@@ -33,6 +34,7 @@ REGISTERED_TOOLS: tuple[ToolDefinition[Any, Any], ...] = (
     LookupSalesforcePrTool(),
     RecalculateQuoteAggregatesTool(),
     GetFieldSuggestionsTool(),
+    GetApprovalGuidelinesTool(),
     WebResearchTool(),
     PreviewPricingChangeTool(),
     CreateQuotationTool(),
