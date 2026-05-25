@@ -55,6 +55,19 @@ class Settings(BaseSettings):
     cost_soft_per_run_usd: float = 0.15
     cost_hard_per_run_usd: float = 0.60
 
+    # Per-run ceilings for `WebResearchTool` (M2 Phase 9). Caps the number of
+    # Gemini-grounding calls made when blending market suggestions and the
+    # estimated USD cost across them. Whichever ceiling is hit first turns the
+    # tool into a graceful no-signal stub.
+    max_research_calls_per_run: int = 5
+    max_research_cost_per_run_usd: float = 0.05
+    web_research_estimated_cost_usd: float = 0.01
+    web_research_timeout_seconds: float = 5.0
+    web_research_default_max_age_seconds: int = 6 * 60 * 60
+    web_research_model: str = "gemini-2.5-flash"
+    web_research_disagreement_threshold: float = 0.25
+    web_research_fallback_model: str = "gemini-2.5-flash"
+
     langfuse_public_key: str | None = Field(default=None, repr=False)
     langfuse_secret_key: str | None = Field(default=None, repr=False)
     langfuse_host: str = "http://localhost:3001"
