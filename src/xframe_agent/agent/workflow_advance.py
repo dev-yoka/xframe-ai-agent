@@ -40,8 +40,13 @@ from typing import Any
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from xframe_agent.agent.events import append_run_event
+from xframe_agent.agent.events import (
+    EVENT_WORKFLOW_STEP_PROPOSED,
+    append_run_event,
+)
+from xframe_agent.agent.step_proposals import propose_step_payload
 from xframe_agent.agent.suggestions import emit_suggestions
+from xframe_agent.agent.suggestions_budget import RunBudget
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.models import (
     AgentRun,
@@ -515,6 +520,7 @@ async def emit_step_entered_with_suggestions(
     auth_ctx: AuthContext,
     priceframe: PriceFrameClient | None,
     session_span: Any | None = None,
+    budget: RunBudget | None = None,
 ) -> None:
     """Emit ``v1.workflow.step.entered`` then fan out historical suggestions.
 
@@ -526,6 +532,11 @@ async def emit_step_entered_with_suggestions(
     When ``session_span`` is supplied the per-step Langfuse span hierarchy is
     nested under the active ``agent.workflow_session`` so the suggestion
     fan-out shows up as a grandchild of the run trace (Phase 11 open item).
+
+    M2.1.B: after the suggestion fan-out we also build a full step-level
+    proposal (``v1.workflow.step.proposed``) covering the step's declared
+    essentials. The proposal emission is best-effort — any failure is logged
+    and swallowed so a broken proposal can never block the wizard.
     """
 
     contract_id = (contract.get("id") if isinstance(contract, Mapping) else None) or (
@@ -545,6 +556,9 @@ async def emit_step_entered_with_suggestions(
         event_type="v1.workflow.step.entered",
         payload=step_entered_payload(contract, step),
     )
+    # Share one RunBudget across the suggestion fan-out and the step proposal
+    # so they jointly respect the per-run cap.
+    shared_budget = budget if budget is not None else RunBudget()
     with workflow_step_span(
         session_span,
         step_id=step_id_str,
@@ -560,9 +574,33 @@ async def emit_step_entered_with_suggestions(
                 draft_state=draft_state,
                 auth_ctx=auth_ctx,
                 priceframe=priceframe,
+                budget=shared_budget,
                 parent_span=step_span,
             )
         except Exception:  # noqa: BLE001 - suggestions are best-effort
+            # Still attempt the step proposal below — it has its own try/except.
+            pass
+
+    try:
+        proposal_payload = await propose_step_payload(
+            contract=contract,
+            step=step,
+            draft_state=draft_state or {},
+            auth_ctx=auth_ctx,
+            priceframe=priceframe,
+            budget=shared_budget,
+        )
+    except Exception:  # noqa: BLE001 - proposal is best-effort
+        proposal_payload = None
+    if proposal_payload is not None:
+        try:
+            await append_run_event(
+                session,
+                run_id=run_id,
+                event_type=EVENT_WORKFLOW_STEP_PROPOSED,
+                payload=proposal_payload,
+            )
+        except Exception:  # noqa: BLE001 - never block the wizard
             return
 
 

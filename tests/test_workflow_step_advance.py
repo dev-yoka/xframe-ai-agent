@@ -502,9 +502,13 @@ async def test_advance_approved_fans_out_suggestions_for_next_step(
     # produce a v1.suggestion.ready event because the fake returns a value
     # above the (irrelevant in tests) min_sample_size.
     assert stream_text.count("event: v1.suggestion.ready") == 5
-    # And the fake PriceFrameClient was called once per proactive-historical
-    # field on the pricing step.
-    assert len(fake_pf.calls) == 5
+    # The fake PriceFrameClient is hit once per proactive-historical field on
+    # the pricing step (5 fan-out calls) plus once per declared essential field
+    # with a historical spec (2 more: default_transaction_fee + default_fx_spread_percent),
+    # because the M2.1.B step proposal also resolves essentials via the same
+    # GetFieldSuggestionsTool. Both subsystems share the run budget so the
+    # combined count is bounded.
+    assert len(fake_pf.calls) == 5 + 2
 
 
 async def test_final_step_approval_does_not_emit_step_entered(
