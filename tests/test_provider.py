@@ -301,9 +301,11 @@ async def test_gemini_api_provider_owned_client_can_stream_twice(
     assert second == [StreamEvent(kind="text_delta", payload={"delta": "response 2"})]
 
 
-def test_provider_factory_prefers_gemini_api_key_before_vertex_and_anthropic(
+def test_provider_factory_prefers_vertex_when_configured(
     test_settings: Settings,
 ) -> None:
+    """Vertex-primary order: Vertex → Developer API → Anthropic (M2-GA-02)."""
+
     router = build_router(
         test_settings.model_copy(
             update={
@@ -316,7 +318,63 @@ def test_provider_factory_prefers_gemini_api_key_before_vertex_and_anthropic(
 
     assert router is not None
     assert [provider.name for provider in router.providers] == [
-        "gemini-api",
         "gemini-vertex",
+        "gemini-api",
         "anthropic",
     ]
+
+
+def test_provider_factory_falls_back_to_developer_api_when_vertex_missing(
+    test_settings: Settings,
+) -> None:
+    """Local-dev configuration where Vertex isn't wired still works."""
+
+    router = build_router(
+        test_settings.model_copy(
+            update={
+                "gemini_vertex_project": None,
+                "gemini_api_key": "dev-api-key",
+                "anthropic_api_key": "anthropic-key",
+            }
+        )
+    )
+
+    assert router is not None
+    assert [provider.name for provider in router.providers] == [
+        "gemini-api",
+        "anthropic",
+    ]
+
+
+def test_provider_factory_falls_back_to_anthropic_only_when_nothing_else_configured(
+    test_settings: Settings,
+) -> None:
+    """Anthropic-only deployment is still valid even if it's the last resort."""
+
+    router = build_router(
+        test_settings.model_copy(
+            update={
+                "gemini_vertex_project": None,
+                "gemini_api_key": None,
+                "gemini_aistudio_api_key": None,
+                "anthropic_api_key": "anthropic-key",
+            }
+        )
+    )
+
+    assert router is not None
+    assert [provider.name for provider in router.providers] == ["anthropic"]
+
+
+def test_provider_factory_returns_none_when_unconfigured(test_settings: Settings) -> None:
+    router = build_router(
+        test_settings.model_copy(
+            update={
+                "gemini_vertex_project": None,
+                "gemini_api_key": None,
+                "gemini_aistudio_api_key": None,
+                "anthropic_api_key": None,
+            }
+        )
+    )
+    assert router is None

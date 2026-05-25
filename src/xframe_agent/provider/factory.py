@@ -12,18 +12,23 @@ from xframe_agent.settings import Settings
 def build_router(settings: Settings) -> ProviderFailoverRouter | None:
     """Construct a router from configured providers, in priority order.
 
+    Priority order (Phase 11, M2-GA-02 — Vertex-primary):
+
+    1. Gemini Vertex (production-grade, IAM/ADC-authenticated). Preferred
+       whenever ``gemini_vertex_project`` is set.
+    2. Gemini Developer API. Useful for local dev / staging where Vertex isn't
+       wired but a quick API key is available.
+    3. Anthropic. Final fallback whenever ``anthropic_api_key`` is configured.
+
     Returns ``None`` when no provider is configured — callers should fall back
     to the deterministic :class:`AgentLoop`.
-
-    Order: Gemini API key → Gemini Vertex → Anthropic. To use a different order
-    or different providers, edit this function.
     """
 
     providers: list[Provider] = []
-    if settings.gemini_developer_api_key:
-        providers.append(GeminiAIStudioProvider(settings))
     if settings.gemini_vertex_project:
         providers.append(GeminiVertexProvider(settings))
+    if settings.gemini_developer_api_key:
+        providers.append(GeminiAIStudioProvider(settings))
     if settings.anthropic_api_key:
         providers.append(AnthropicProvider(settings))
     if not providers:
