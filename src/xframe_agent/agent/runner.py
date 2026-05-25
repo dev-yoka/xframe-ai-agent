@@ -25,6 +25,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from xframe_agent.agent.budget import BudgetExceededError, LoopBudget
 from xframe_agent.agent.events import append_run_event
 from xframe_agent.agent.guided_workflows import (
+    CREATE_PRICING_REQUEST_CONTRACT_VERSION,
+    CREATE_PRICING_REQUEST_INITIAL_STEP,
+    CREATE_PRICING_REQUEST_WORKFLOW,
     create_pricing_request_input_payload,
     create_pricing_request_step_entered_payload,
     is_generic_create_pricing_request,
@@ -33,6 +36,12 @@ from xframe_agent.agent.guided_workflows import (
 )
 from xframe_agent.agent.prompts.create_pricing_request import get_system_prompt
 from xframe_agent.agent.redaction import redact
+from xframe_agent.agent.suggestions import emit_historical_suggestions
+from xframe_agent.agent.workflow_advance import (
+    StepAdvanceError,
+    get_step,
+    load_contract,
+)
 from xframe_agent.agent.wrapping import wrap_tool_output
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.models import (
@@ -55,6 +64,43 @@ from xframe_agent.provider.base import (
 from xframe_agent.settings import Settings
 from xframe_agent.tools.base import ToolDefinition
 from xframe_agent.tools.registry import tool_registry
+
+
+async def _fanout_initial_step_suggestions(
+    session: AsyncSession,
+    *,
+    run_id: str,
+    context: AuthContext,
+    priceframe: PriceFrameClient | None,
+) -> None:
+    """Fan out proactive-historical suggestions for the initial wizard step.
+
+    Failures are swallowed so the workflow always advances; suggestions are an
+    additive UX layer.
+    """
+
+    try:
+        contract = load_contract(
+            CREATE_PRICING_REQUEST_WORKFLOW,
+            CREATE_PRICING_REQUEST_CONTRACT_VERSION,
+        )
+    except StepAdvanceError:
+        return
+    step = get_step(contract, CREATE_PRICING_REQUEST_INITIAL_STEP)
+    if step is None:
+        return
+    try:
+        await emit_historical_suggestions(
+            session,
+            run_id=run_id,
+            contract=contract,
+            step=step,
+            draft_state={},
+            auth_ctx=context,
+            priceframe=priceframe,
+        )
+    except Exception:  # noqa: BLE001 - suggestions are best-effort
+        return
 
 
 class LoopDetectedError(Exception):
@@ -312,6 +358,12 @@ class ModelRunner:
             run_id=run.id,
             event_type="v1.workflow.step.entered",
             payload=create_pricing_request_step_entered_payload(),
+        )
+        await _fanout_initial_step_suggestions(
+            session,
+            run_id=run.id,
+            context=context,
+            priceframe=self._priceframe,
         )
         await append_run_event(
             session,

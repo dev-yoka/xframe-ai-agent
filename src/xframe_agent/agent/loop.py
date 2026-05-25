@@ -22,6 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from xframe_agent.agent.budget import BudgetExceededError, LoopBudget
 from xframe_agent.agent.events import append_run_event
 from xframe_agent.agent.guided_workflows import (
+    CREATE_PRICING_REQUEST_CONTRACT_VERSION,
+    CREATE_PRICING_REQUEST_INITIAL_STEP,
     CREATE_PRICING_REQUEST_WORKFLOW,
     create_pricing_request_input_payload,
     create_pricing_request_step_entered_payload,
@@ -29,6 +31,12 @@ from xframe_agent.agent.guided_workflows import (
     parse_create_pricing_request_submission,
 )
 from xframe_agent.agent.redaction import redact
+from xframe_agent.agent.suggestions import emit_historical_suggestions
+from xframe_agent.agent.workflow_advance import (
+    StepAdvanceError,
+    get_step,
+    load_contract,
+)
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.models import (
     AgentConversation,
@@ -40,6 +48,7 @@ from xframe_agent.models import (
 )
 from xframe_agent.models.agent import utc_now
 from xframe_agent.observability.metrics import observe_run_latency, observe_step_count
+from xframe_agent.priceframe import PriceFrameClient
 from xframe_agent.settings import Settings, get_settings
 from xframe_agent.tools.base import ToolDefinition
 from xframe_agent.tools.registry import tool_registry
@@ -165,6 +174,11 @@ class AgentLoop:
                 run_id=run.id,
                 event_type="v1.workflow.step.entered",
                 payload=create_pricing_request_step_entered_payload(),
+            )
+            await self._fanout_initial_step_suggestions(
+                session,
+                run_id=run.id,
+                context=context,
             )
             await append_run_event(
                 session,
@@ -441,6 +455,45 @@ class AgentLoop:
             event_type="v1.run.error",
             payload={"cause": cause, "message": message},
         )
+
+    async def _fanout_initial_step_suggestions(
+        self,
+        session: AsyncSession,
+        *,
+        run_id: str,
+        context: AuthContext,
+    ) -> None:
+        """Fan out proactive-historical suggestions for the initial wizard step.
+
+        Best-effort: any failure (missing contract, network error, etc.) is
+        swallowed so the workflow always advances. Builds a single short-lived
+        ``PriceFrameClient`` because the deterministic loop owns no shared
+        client (unlike :class:`ModelRunner`).
+        """
+
+        try:
+            contract = load_contract(
+                CREATE_PRICING_REQUEST_WORKFLOW,
+                CREATE_PRICING_REQUEST_CONTRACT_VERSION,
+            )
+        except StepAdvanceError:
+            return
+        step = get_step(contract, CREATE_PRICING_REQUEST_INITIAL_STEP)
+        if step is None:
+            return
+        try:
+            async with PriceFrameClient.from_settings(self._settings) as priceframe:
+                await emit_historical_suggestions(
+                    session,
+                    run_id=run_id,
+                    contract=contract,
+                    step=step,
+                    draft_state={},
+                    auth_ctx=context,
+                    priceframe=priceframe,
+                )
+        except Exception:  # noqa: BLE001 - suggestions are best-effort
+            return
 
 
 def _extract_memory(content: str) -> str | None:
