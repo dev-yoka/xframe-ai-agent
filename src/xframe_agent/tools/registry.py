@@ -23,6 +23,7 @@ from xframe_agent.tools.priceframe_write import (
     SubmitForApprovalTool,
     UpdateCorridorPricingTool,
 )
+from xframe_agent.tools.web_research import WebResearchTool
 
 REGISTERED_TOOLS: tuple[ToolDefinition[Any, Any], ...] = (
     ListMyQuotationsTool(),
@@ -32,6 +33,7 @@ REGISTERED_TOOLS: tuple[ToolDefinition[Any, Any], ...] = (
     LookupSalesforcePrTool(),
     RecalculateQuoteAggregatesTool(),
     GetFieldSuggestionsTool(),
+    WebResearchTool(),
     PreviewPricingChangeTool(),
     CreateQuotationTool(),
     BulkAddCorridorsTool(),
