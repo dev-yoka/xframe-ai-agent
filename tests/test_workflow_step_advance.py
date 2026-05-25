@@ -643,3 +643,434 @@ async def test_final_step_approval_does_not_emit_step_entered(
     # And only the initial summary step.entered should appear in the stream.
     assert stream_text.count("event: v1.workflow.step.entered") == 1
     assert '"step_id":"summary"' in stream_text
+
+
+# ---------------------------------------------------------------------------
+# M2.1.B — v1.workflow.step.proposed wiring tests
+# ---------------------------------------------------------------------------
+
+
+async def test_step_entered_emits_proposal_for_per_tab_step(
+    agent_client: AsyncClient,
+) -> None:
+    """Entering the wizard fires step.entered for ``summary`` (a per_tab step)
+    plus a v1.workflow.step.proposed event covering the summary essentials.
+
+    The summary step's essentials include enums and a string that can be
+    defaulted from the contract, so a proposal is always producible even
+    without a draft or historical signal.
+    """
+
+    _conversation_id, run_id = await _start_wizard(agent_client)
+
+    stream_response = await agent_client.get(f"/api/v1/agent/runs/{run_id}/stream")
+    assert stream_response.status_code == 200
+    stream_text = stream_response.text
+
+    # The proposed event MUST follow the entered event for the same step.
+    entered_index = stream_text.find("event: v1.workflow.step.entered")
+    proposed_index = stream_text.find("event: v1.workflow.step.proposed")
+    assert entered_index > 0
+    assert proposed_index > entered_index
+    # And the proposal payload references the summary step.
+    assert '"step_id":"summary"' in stream_text[proposed_index:]
+
+
+async def test_step_entered_emits_proposal_for_batch_at_submit_step(
+    test_settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``quoting_summary`` is approval_mode=batch_at_submit; entering it must
+    still emit a step.proposed event because batched steps also benefit from
+    the agent-proposes card (the user can edit/accept before final submit).
+
+    Drives the wizard from setup_fee -> pricing -> pnl -> quoting_summary by
+    posting empty step_advance requests, exercising the full per-tab chain.
+    """
+
+    from xframe_agent.priceframe import PriceFrameClient
+
+    database_url = f"sqlite+aiosqlite:///{tmp_path / 'agent-batch.db'}"
+    settings = test_settings.model_copy(
+        update={
+            "database_url": database_url,
+            "run_execution_mode": "inline",
+            "sse_redis_buffer_enabled": False,
+        }
+    )
+    app = create_app(settings)
+
+    async def fake_auth_context() -> AuthContext:
+        return AuthContext(
+            user_id=7,
+            role_code="ROLE_AM_SALES",
+            profile_code="PROFILE_SALES",
+            permissions=(
+                "agent.enabled",
+                "agent.quotes.read",
+                "agent.quotes.create",
+                "agent.quotes.recalc",
+                "agent.quotes.edit",
+                "agent.approvals.submit",
+                "agent.salesforce.read",
+            ),
+            jwt_raw="jwt-for-tests",
+            session_id=42,
+        )
+
+    app.dependency_overrides[get_auth_context] = fake_auth_context
+
+    engine = create_async_engine(database_url)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await engine.dispose()
+
+    class _FakePriceFrame:
+        async def __aenter__(self) -> _FakePriceFrame:
+            return self
+
+        async def __aexit__(self, *_exc_info: object) -> None:
+            return None
+
+        async def get_json(
+            self,
+            path: str,  # noqa: ARG002
+            *,
+            jwt_raw: str,  # noqa: ARG002
+            params: Mapping[str, Any] | None = None,  # noqa: ARG002
+        ) -> dict[str, Any]:
+            return {}
+
+    def fake_from_settings(
+        _settings: Settings,
+        *,
+        default_headers: Mapping[str, str] | None = None,  # noqa: ARG001
+    ) -> _FakePriceFrame:
+        return _FakePriceFrame()
+
+    monkeypatch.setattr(PriceFrameClient, "from_settings", staticmethod(fake_from_settings))
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        try:
+            conversation_id, run_id = await _start_wizard(client)
+            await _seed_draft(
+                client,
+                conversation_id,
+                {"pnl": {}, "summary": {}},
+                current_step_id="pnl",
+            )
+            # Per-tab approve pnl -> lands on quoting_summary, which is batch_at_submit.
+            advance = await client.post(
+                f"/api/v1/agent/runs/{run_id}/step_advance",
+                json={"step_id": "pnl"},
+            )
+            assert advance.status_code == 200
+            assert advance.json()["status"] == "approved"
+
+            stream_response = await client.get(f"/api/v1/agent/runs/{run_id}/stream")
+            assert stream_response.status_code == 200
+            stream_text = stream_response.text
+        finally:
+            AppStatus.should_exit = False
+            AppStatus.should_exit_event = None
+            await app.state.engine.dispose()
+
+    # The quoting_summary tab is batch_at_submit but must still get a proposed
+    # event when the user lands on it.
+    quoting_summary_entered = stream_text.find('"step_id":"quoting_summary"')
+    assert quoting_summary_entered > 0
+    # Look for a step.proposed event that targets quoting_summary.
+    proposed_section = stream_text[quoting_summary_entered:]
+    assert "event: v1.workflow.step.proposed" in proposed_section
+
+
+async def test_step_entered_skips_proposal_when_no_essentials(
+    test_settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A step without ``essential_field_ids`` must not emit step.proposed.
+
+    Patches the loaded contract to drop essentials from the summary step so the
+    initial wizard mount sees a step with no essentials. Asserts the stream
+    contains step.entered but not step.proposed.
+    """
+
+    from copy import deepcopy
+
+    import xframe_agent.agent.loop as loop_module
+    import xframe_agent.agent.runner as runner_module
+    import xframe_agent.agent.workflow_advance as wa_module
+
+    original_loader = wa_module.load_contract
+
+    def _patched_loader(contract_id: str, contract_version: str) -> dict[str, Any]:
+        contract = deepcopy(original_loader(contract_id, contract_version))
+        for step in contract.get("steps", []):
+            if step.get("id") == "summary":
+                step.pop("essential_field_ids", None)
+        return contract
+
+    # Each consumer of ``load_contract`` imports the symbol into its own module
+    # namespace, so we have to patch every site. The lru_cache on the original
+    # is cleared first so any cached full-contract entry isn't served back.
+    wa_module.load_contract.cache_clear()
+    monkeypatch.setattr(wa_module, "load_contract", _patched_loader)
+    monkeypatch.setattr(loop_module, "load_contract", _patched_loader)
+    monkeypatch.setattr(runner_module, "load_contract", _patched_loader)
+
+    database_url = f"sqlite+aiosqlite:///{tmp_path / 'agent-noess.db'}"
+    settings = test_settings.model_copy(
+        update={
+            "database_url": database_url,
+            "run_execution_mode": "inline",
+            "sse_redis_buffer_enabled": False,
+        }
+    )
+    app = create_app(settings)
+
+    async def fake_auth_context() -> AuthContext:
+        return AuthContext(
+            user_id=7,
+            role_code="ROLE_AM_SALES",
+            profile_code="PROFILE_SALES",
+            permissions=(
+                "agent.enabled",
+                "agent.quotes.read",
+                "agent.quotes.create",
+            ),
+            jwt_raw="jwt-for-tests",
+            session_id=42,
+        )
+
+    app.dependency_overrides[get_auth_context] = fake_auth_context
+
+    engine = create_async_engine(database_url)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await engine.dispose()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        try:
+            _conversation_id, run_id = await _start_wizard(client)
+            stream_response = await client.get(f"/api/v1/agent/runs/{run_id}/stream")
+            assert stream_response.status_code == 200
+            stream_text = stream_response.text
+        finally:
+            AppStatus.should_exit = False
+            AppStatus.should_exit_event = None
+            await app.state.engine.dispose()
+
+    assert "event: v1.workflow.step.entered" in stream_text
+    # The summary step has no essentials in this patched contract, so no
+    # proposal event must appear in the stream.
+    assert "event: v1.workflow.step.proposed" not in stream_text
+    # ``monkeypatch.setattr`` restores the original lru_cache-wrapped loader at
+    # teardown — we cleared its cache before patching so the next test gets a
+    # fresh full-contract entry on first access.
+
+
+# ---------------------------------------------------------------------------
+# M2.1.B — POST /runs/{id}/step_proposal_decision tests
+# ---------------------------------------------------------------------------
+
+
+async def test_proposal_accept_fills_draft_and_emits_event(
+    agent_client: AsyncClient,
+) -> None:
+    """Accept merges the payload into draft.payload[step_id] and emits the
+    v1.workflow.step.proposal_accepted SSE event."""
+
+    conversation_id, run_id = await _start_wizard(agent_client)
+    await _seed_draft(agent_client, conversation_id, {"summary": {}})
+
+    response = await agent_client.post(
+        f"/api/v1/agent/runs/{run_id}/step_proposal_decision",
+        json={
+            "step_id": "summary",
+            "decision": "accept",
+            "payload": {
+                "opportunity_type": "New partner",
+                "default_fee_currency": "USD",
+            },
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "accepted"
+    assert body["populated_fields"] == ["default_fee_currency", "opportunity_type"]
+
+    # The draft was updated.
+    draft_response = await agent_client.get(
+        f"/api/v1/agent/conversations/{conversation_id}/draft"
+    )
+    assert draft_response.status_code == 200
+    draft_payload = draft_response.json()["payload"]
+    assert draft_payload["summary"]["opportunity_type"] == "New partner"
+    assert draft_payload["summary"]["default_fee_currency"] == "USD"
+
+    # The acceptance event lands on the stream.
+    stream_response = await agent_client.get(f"/api/v1/agent/runs/{run_id}/stream")
+    assert stream_response.status_code == 200
+    assert "event: v1.workflow.step.proposal_accepted" in stream_response.text
+
+
+async def test_proposal_accept_rejects_unknown_field_ids(
+    agent_client: AsyncClient,
+) -> None:
+    """Accepting a payload referencing fields the step doesn't declare is a 422."""
+
+    conversation_id, run_id = await _start_wizard(agent_client)
+    await _seed_draft(agent_client, conversation_id, {"summary": {}})
+
+    response = await agent_client.post(
+        f"/api/v1/agent/runs/{run_id}/step_proposal_decision",
+        json={
+            "step_id": "summary",
+            "decision": "accept",
+            "payload": {"phantom_field": 1.5},
+        },
+    )
+    assert response.status_code == 422
+    # The error detail surfaces the offending field id either at the top
+    # level (HTTPException) or inside Pydantic's loc list.
+    body = response.json()
+    text = str(body)
+    assert "phantom_field" in text
+
+
+async def test_proposal_dismiss_emits_event_without_filling_draft(
+    agent_client: AsyncClient,
+) -> None:
+    """Dismiss never writes the draft and emits proposal_dismissed with the reason."""
+
+    conversation_id, run_id = await _start_wizard(agent_client)
+    await _seed_draft(agent_client, conversation_id, {"summary": {}})
+
+    response = await agent_client.post(
+        f"/api/v1/agent/runs/{run_id}/step_proposal_decision",
+        json={
+            "step_id": "summary",
+            "decision": "dismiss",
+            "reason": "user_skipped",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "dismissed"
+    assert body["populated_fields"] == []
+
+    draft_response = await agent_client.get(
+        f"/api/v1/agent/conversations/{conversation_id}/draft"
+    )
+    assert draft_response.status_code == 200
+    # The draft section we seeded stays empty — dismiss never writes.
+    assert draft_response.json()["payload"]["summary"] == {}
+
+    stream_response = await agent_client.get(f"/api/v1/agent/runs/{run_id}/stream")
+    assert "event: v1.workflow.step.proposal_dismissed" in stream_response.text
+    assert '"reason":"user_skipped"' in stream_response.text
+
+
+async def test_proposal_accept_does_not_auto_advance(
+    agent_client: AsyncClient,
+) -> None:
+    """Accepting a step proposal must not auto-advance the wizard.
+
+    The wizard remains responsible for calling /step_advance after the user
+    reviews the ToolProposalCard. The endpoint emits no advance event.
+    """
+
+    conversation_id, run_id = await _start_wizard(agent_client)
+    await _seed_draft(agent_client, conversation_id, {"summary": {}})
+
+    accept = await agent_client.post(
+        f"/api/v1/agent/runs/{run_id}/step_proposal_decision",
+        json={
+            "step_id": "summary",
+            "decision": "accept",
+            "payload": {"opportunity_type": "Upsell"},
+        },
+    )
+    assert accept.status_code == 200
+
+    stream_response = await agent_client.get(f"/api/v1/agent/runs/{run_id}/stream")
+    stream_text = stream_response.text
+    # No advance event of any flavour should land from the accept call.
+    assert "event: v1.workflow.step.advance_requested" not in stream_text
+    assert "event: v1.workflow.step.advance_approved" not in stream_text
+    assert "event: v1.workflow.step.advance_rejected" not in stream_text
+
+
+async def test_proposal_decision_acl_rejects_other_user(
+    test_settings: Settings,
+    tmp_path: Path,
+) -> None:
+    """A user must not be able to operate on another user's run/conversation.
+
+    Spins up two app instances, the second one auth'd as a different user_id,
+    and confirms the cross-user POST returns 404 (matching the require_run
+    behaviour used by every other run endpoint).
+    """
+
+    database_url = f"sqlite+aiosqlite:///{tmp_path / 'agent-acl.db'}"
+    settings = test_settings.model_copy(
+        update={
+            "database_url": database_url,
+            "run_execution_mode": "inline",
+            "sse_redis_buffer_enabled": False,
+        }
+    )
+    app = create_app(settings)
+
+    current_user: dict[str, int] = {"user_id": 7}
+
+    async def fake_auth_context() -> AuthContext:
+        return AuthContext(
+            user_id=current_user["user_id"],
+            role_code="ROLE_AM_SALES",
+            profile_code="PROFILE_SALES",
+            permissions=(
+                "agent.enabled",
+                "agent.quotes.read",
+                "agent.quotes.create",
+                "agent.quotes.recalc",
+                "agent.quotes.edit",
+                "agent.approvals.submit",
+                "agent.salesforce.read",
+            ),
+            jwt_raw="jwt-for-tests",
+            session_id=42,
+        )
+
+    app.dependency_overrides[get_auth_context] = fake_auth_context
+
+    engine = create_async_engine(database_url)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    await engine.dispose()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        try:
+            conversation_id, run_id = await _start_wizard(client)
+            await _seed_draft(client, conversation_id, {"summary": {}})
+
+            # Switch to a different user — neither owns the run nor the draft.
+            current_user["user_id"] = 99
+            response = await client.post(
+                f"/api/v1/agent/runs/{run_id}/step_proposal_decision",
+                json={
+                    "step_id": "summary",
+                    "decision": "accept",
+                    "payload": {"opportunity_type": "Upsell"},
+                },
+            )
+            assert response.status_code == 404
+        finally:
+            AppStatus.should_exit = False
+            AppStatus.should_exit_event = None
+            await app.state.engine.dispose()
