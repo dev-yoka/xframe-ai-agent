@@ -39,6 +39,7 @@ from pydantic import BaseModel, Field
 
 from xframe_agent.agent.suggestions_budget import RunBudget
 from xframe_agent.auth.jwt import AuthContext
+from xframe_agent.observability.metrics import observe_web_research_cost
 from xframe_agent.priceframe import PriceFrameClient
 from xframe_agent.settings import Settings
 from xframe_agent.tools.base import ToolDefinition
@@ -459,6 +460,9 @@ class WebResearchTool(ToolDefinition[WebResearchInput, WebResearchOutput]):
 
         if self._budget is not None:
             self._budget.record(estimated_cost)
+        # Telemetry: record the estimated USD cost of every realised call so
+        # the dashboard can plot ``rate(...) * sum_per_run`` for cost trend.
+        observe_web_research_cost(estimated_cost)
 
         # Defensive copy + always-false cache_hit on a fresh call.
         payload = dict(result)

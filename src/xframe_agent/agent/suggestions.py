@@ -31,6 +31,10 @@ from xframe_agent.agent.suggestions_blend import (
 )
 from xframe_agent.agent.suggestions_budget import RunBudget
 from xframe_agent.auth.jwt import AuthContext
+from xframe_agent.observability.metrics import (
+    increment_suggestion_no_signal,
+    increment_suggestion_sources,
+)
 from xframe_agent.priceframe import PriceFrameClient
 from xframe_agent.settings import Settings, get_settings
 from xframe_agent.tools.priceframe_read import (
@@ -483,7 +487,9 @@ async def fan_out_suggestions(
             client=grounding_client,
         )
     )
-    historical_events, market_payloads = await asyncio.gather(historical_task, market_task)
+    historical_events, market_payloads = await asyncio.gather(
+        historical_task, market_task
+    )
 
     fields_by_id: dict[str, Any] = {}
     for field in _get(step, "fields") or []:
@@ -545,6 +551,12 @@ async def fan_out_suggestions(
             _get(_get(field, "suggestion"), "sources") if field is not None else None
         )
         if "market" not in suggestion_sources and historical_event is not None:
+            # Historical-only fan-outs still feed source/no_signal metrics so
+            # the dashboard funnel is complete even when market is disabled.
+            if historical_event.get("event_type") == EVENT_READY:
+                increment_suggestion_sources(["historical"])
+            elif historical_event.get("event_type") == EVENT_NO_SIGNAL:
+                increment_suggestion_no_signal(field_id)
             blended_events.append(historical_event)
             continue
 
@@ -562,6 +574,7 @@ async def fan_out_suggestions(
         )
 
         if result.no_signal:
+            increment_suggestion_no_signal(field_id)
             payload = {
                 **base_payload,
                 "reason": result.reason or "confidence_below_threshold",
@@ -570,6 +583,15 @@ async def fan_out_suggestions(
             }
             blended_events.append({"event_type": EVENT_NO_SIGNAL, "payload": payload})
             continue
+
+        # Telemetry: count each source the blend actually consumed. When the
+        # blend pulled from both bands we *also* emit a synthetic ``blended``
+        # source so the dashboard panel can distinguish a pure single-source
+        # suggestion from a true blend.
+        sources_for_metric = list(result.sources_used)
+        if len(set(sources_for_metric) & {"historical", "market"}) == 2:
+            sources_for_metric.append("blended")
+        increment_suggestion_sources(sources_for_metric)
 
         payload = {
             **base_payload,

@@ -16,6 +16,7 @@ from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.db.session import get_session
 from xframe_agent.models import AgentConversation, AgentMessage, AgentRun, AgentWorkflowDraft
 from xframe_agent.models.agent import utc_now
+from xframe_agent.observability.metrics import increment_draft_resume
 from xframe_agent.schemas import (
     ConversationCreate,
     ConversationDetailResponse,
@@ -119,6 +120,9 @@ async def get_workflow_draft(
         await session.delete(draft)
         await session.commit()
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Workflow draft expired")
+    # M2-OBSERVE: count successful resumes so the dashboard funnel can
+    # quantify how often users return to in-progress wizards.
+    increment_draft_resume()
     return workflow_draft_response(draft)
 
 

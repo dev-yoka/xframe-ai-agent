@@ -12,7 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
-from xframe_agent.agent.events import append_run_event, event_payload, list_run_events
+from xframe_agent.agent.events import (
+    append_run_event,
+    event_payload,
+    list_run_events,
+    record_step_duration_from_events,
+)
 from xframe_agent.agent.workflow_advance import (
     StepAdvanceError,
     emit_advance_event,
@@ -302,6 +307,14 @@ async def request_step_advance(
     # stream closes cleanly; keep it ``awaiting_decision`` while a bundle is
     # pending so the client can pick up the upcoming events.
     if decision.status == "approved":
+        # M2-OBSERVE: record step duration (entered -> approved) before we
+        # enter the next tab so the metric reflects the user-perceived time.
+        await record_step_duration_from_events(
+            session,
+            run_id=run.id,
+            step_id=payload.step_id,
+            outcome="approved",
+        )
         # Emit step.entered + historical suggestions for the next tab BEFORE
         # the run.completed event, so SSE consumers see "you're now on tab N+1"
         # plus any pre-filled values before the stream closes.
@@ -323,6 +336,12 @@ async def request_step_advance(
             payload={"step_id": payload.step_id, "via": "step_advance_approved"},
         )
     elif decision.status == "blocked":
+        await record_step_duration_from_events(
+            session,
+            run_id=run.id,
+            step_id=payload.step_id,
+            outcome="blocked",
+        )
         run.status = "completed"
         run.completed_at = utc_now()
         run.updated_at = utc_now()
@@ -401,6 +420,12 @@ async def decide_step_advance(
         if run.status == "awaiting_decision":
             run.status = "completed"
             run.completed_at = utc_now()
+        await record_step_duration_from_events(
+            session,
+            run_id=run_id,
+            step_id=payload.step_id,
+            outcome="rejected",
+        )
         await append_run_event(
             session,
             run_id=run_id,
@@ -478,6 +503,12 @@ async def decide_step_advance(
     if run.status == "awaiting_decision":
         run.status = "completed"
         run.completed_at = utc_now()
+    await record_step_duration_from_events(
+        session,
+        run_id=run_id,
+        step_id=payload.step_id,
+        outcome="approved",
+    )
     await append_run_event(
         session,
         run_id=run_id,

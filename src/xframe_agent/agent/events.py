@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xframe_agent.models import AgentRunEvent
+from xframe_agent.observability.metrics import observe_workflow_step_duration
 
 
 async def append_run_event(
@@ -70,3 +71,48 @@ def _aware_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+async def record_step_duration_from_events(
+    session: AsyncSession,
+    *,
+    run_id: str,
+    step_id: str,
+    outcome: str,
+) -> float | None:
+    """Record the wall-clock duration of a workflow step on a terminal event.
+
+    Looks up the most recent ``v1.workflow.step.entered`` event for this run +
+    step_id and observes ``now - that event's created_at`` against the
+    ``agent_workflow_step_duration_seconds`` histogram. Returns the recorded
+    duration in seconds, or ``None`` when no matching enter event exists (the
+    step was never entered or events were purged) — in which case the metric
+    is skipped to avoid polluting the histogram with synthetic samples.
+
+    Outcome should be one of ``approved``, ``blocked``, ``rejected``,
+    ``abandoned`` — the metric helper clamps unknown values to ``abandoned``.
+    """
+
+    stmt = (
+        select(AgentRunEvent)
+        .where(
+            AgentRunEvent.run_id == run_id,
+            AgentRunEvent.event_type == "v1.workflow.step.entered",
+        )
+        .order_by(desc(AgentRunEvent.created_at), desc(AgentRunEvent.seq))
+        .limit(8)
+    )
+    result = await session.execute(stmt)
+    candidate: AgentRunEvent | None = None
+    for event in result.scalars():
+        payload = event.payload or {}
+        if payload.get("step_id") == step_id:
+            candidate = event
+            break
+    if candidate is None:
+        return None
+    entered_at = _aware_utc(candidate.created_at)
+    now = datetime.now(UTC)
+    seconds = max(0.0, (now - entered_at).total_seconds())
+    observe_workflow_step_duration(step_id=step_id, outcome=outcome, seconds=seconds)
+    return seconds
