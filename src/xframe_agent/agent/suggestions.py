@@ -445,6 +445,7 @@ async def fan_out_suggestions(
     cache: ResearchCache | None = None,
     grounding_client: GeminiGroundingClient | None = None,
     flash_reconciler: FlashReconciler | None = None,
+    parent_span: Any | None = None,
 ) -> list[dict[str, Any]]:
     """Fan out historical *and* market bands in parallel then blend per field.
 
@@ -470,9 +471,12 @@ async def fan_out_suggestions(
     step_id_for_span = _enum_value(_get(step, "id")) or "unknown"
     field_count = len(list(_get(step, "fields") or []))
     # Tracing is best-effort; the span context manager is a no-op when
-    # Langfuse isn't configured so we always enter it.
+    # Langfuse isn't configured so we always enter it. ``parent_span`` is
+    # provided by the workflow step span when wired through ``emit_suggestions``;
+    # when ``None`` the fan-out still gets its own span but is detached from
+    # the per-step hierarchy.
     with suggestion_fanout_span(
-        None,  # parent attaches via the workflow step span when wired in
+        parent_span,
         step_id=str(step_id_for_span),
         field_count=field_count,
     ):
@@ -640,8 +644,14 @@ async def emit_suggestions(
     cache: ResearchCache | None = None,
     grounding_client: GeminiGroundingClient | None = None,
     flash_reconciler: FlashReconciler | None = None,
+    parent_span: Any | None = None,
 ) -> list[dict[str, Any]]:
-    """Combined historical + market emit. Use this instead of the historical-only one."""
+    """Combined historical + market emit. Use this instead of the historical-only one.
+
+    ``parent_span`` is forwarded into :func:`fan_out_suggestions` so the
+    Langfuse span hierarchy nests under the active ``agent.workflow_step``
+    span when supplied (Phase 11 / M2-GA open item).
+    """
 
     if priceframe is None:
         return []
@@ -659,6 +669,7 @@ async def emit_suggestions(
         cache=cache,
         grounding_client=grounding_client,
         flash_reconciler=flash_reconciler,
+        parent_span=parent_span,
     )
     for event in events:
         await append_run_event(

@@ -50,6 +50,7 @@ from xframe_agent.models import (
     AgentWorkflowDraft,
 )
 from xframe_agent.models.agent import utc_now
+from xframe_agent.observability.tracing import workflow_step_span
 from xframe_agent.priceframe import PriceFrameClient
 from xframe_agent.tools.registry import tool_registry
 
@@ -516,6 +517,7 @@ async def emit_step_entered_with_suggestions(
     draft_state: Mapping[str, Any] | None,
     auth_ctx: AuthContext,
     priceframe: PriceFrameClient | None,
+    session_span: Any | None = None,
 ) -> None:
     """Emit ``v1.workflow.step.entered`` then fan out historical suggestions.
 
@@ -523,7 +525,22 @@ async def emit_step_entered_with_suggestions(
     event before the per-field ``v1.suggestion.ready`` / ``v1.suggestion.no_signal``
     events for that step. The fan-out is best-effort — failures are swallowed so
     the workflow always advances.
+
+    When ``session_span`` is supplied the per-step Langfuse span hierarchy is
+    nested under the active ``agent.workflow_session`` so the suggestion
+    fan-out shows up as a grandchild of the run trace (Phase 11 open item).
     """
+
+    contract_id = (
+        contract.get("id") if isinstance(contract, Mapping) else None
+    ) or (contract.get("contract_id") if isinstance(contract, Mapping) else None)
+    contract_version = (
+        contract.get("version") if isinstance(contract, Mapping) else None
+    ) or (contract.get("contract_version") if isinstance(contract, Mapping) else None)
+    step_id_value: Any = step.get("id") if isinstance(step, Mapping) else None
+    if step_id_value is not None and hasattr(step_id_value, "value"):
+        step_id_value = step_id_value.value
+    step_id_str = str(step_id_value) if step_id_value is not None else "unknown"
 
     await append_run_event(
         session,
@@ -531,18 +548,25 @@ async def emit_step_entered_with_suggestions(
         event_type="v1.workflow.step.entered",
         payload=step_entered_payload(contract, step),
     )
-    try:
-        await emit_suggestions(
-            session,
-            run_id=run_id,
-            contract=contract,
-            step=step,
-            draft_state=draft_state,
-            auth_ctx=auth_ctx,
-            priceframe=priceframe,
-        )
-    except Exception:  # noqa: BLE001 - suggestions are best-effort
-        return
+    with workflow_step_span(
+        session_span,
+        step_id=step_id_str,
+        contract_id=str(contract_id) if contract_id is not None else None,
+        contract_version=str(contract_version) if contract_version is not None else None,
+    ) as step_span:
+        try:
+            await emit_suggestions(
+                session,
+                run_id=run_id,
+                contract=contract,
+                step=step,
+                draft_state=draft_state,
+                auth_ctx=auth_ctx,
+                priceframe=priceframe,
+                parent_span=step_span,
+            )
+        except Exception:  # noqa: BLE001 - suggestions are best-effort
+            return
 
 
 __all__ = [

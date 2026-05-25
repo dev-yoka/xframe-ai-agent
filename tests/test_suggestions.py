@@ -4,6 +4,7 @@ plus the M2 Phase 9 / Wave C blending + market band paths."""
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
@@ -888,3 +889,54 @@ def test_blend_result_serialization() -> None:
         "rationale": "r",
         "sources_used": ["historical", "market"],
     }
+
+
+async def test_fan_out_suggestions_threads_parent_span_into_fanout_span(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``parent_span`` must be forwarded into ``suggestion_fanout_span`` so
+    the Langfuse trace properly nests the fan-out under the workflow step
+    span (Phase 11 / M2 open item).
+    """
+
+    captured_parents: list[Any] = []
+
+    @contextmanager
+    def _recording_fanout_span(
+        parent: Any, *, step_id: str, field_count: int | None = None
+    ) -> Any:
+        del step_id, field_count
+        captured_parents.append(parent)
+        yield object()
+
+    monkeypatch.setattr(
+        "xframe_agent.agent.suggestions.suggestion_fanout_span", _recording_fanout_span
+    )
+
+    step = _make_step([_proactive_field("default_transaction_fee", filter_keys=["corridor"])])
+    contract = _make_contract([step])
+    priceframe = _StubPriceFrame(
+        {
+            "default_transaction_fee": {
+                "value": 1.0,
+                "unit": "PCT_AMOUNT",
+                "sample_size": 5,
+                "range": {"min": 0.5, "max": 1.5},
+                "basis": {"aggregation": "median"},
+                "context_used": {"corridor": "USA-IND"},
+                "as_of": "2026-05-25T00:00:00Z",
+            }
+        }
+    )
+
+    sentinel_parent = object()
+    await fan_out_suggestions(
+        contract=contract,
+        step=step,
+        draft_state={"summary": {"corridor": "USA-IND"}},
+        auth_ctx=_AUTH,
+        priceframe=priceframe,  # type: ignore[arg-type]
+        parent_span=sentinel_parent,
+    )
+
+    assert captured_parents == [sentinel_parent]
