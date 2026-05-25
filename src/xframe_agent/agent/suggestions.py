@@ -35,6 +35,7 @@ from xframe_agent.observability.metrics import (
     increment_suggestion_no_signal,
     increment_suggestion_sources,
 )
+from xframe_agent.observability.tracing import suggestion_fanout_span
 from xframe_agent.priceframe import PriceFrameClient
 from xframe_agent.settings import Settings, get_settings
 from xframe_agent.tools.priceframe_read import (
@@ -466,30 +467,39 @@ async def fan_out_suggestions(
     if flash_reconciler is None and grounding_client.configured:
         flash_reconciler = FlashReconciler(settings, budget=budget)
 
-    historical_task = asyncio.create_task(
-        fan_out_historical_suggestions(
-            contract=contract,
-            step=step,
-            draft_state=draft_state,
-            auth_ctx=auth_ctx,
-            priceframe=priceframe,
+    step_id_for_span = _enum_value(_get(step, "id")) or "unknown"
+    field_count = len(list(_get(step, "fields") or []))
+    # Tracing is best-effort; the span context manager is a no-op when
+    # Langfuse isn't configured so we always enter it.
+    with suggestion_fanout_span(
+        None,  # parent attaches via the workflow step span when wired in
+        step_id=str(step_id_for_span),
+        field_count=field_count,
+    ):
+        historical_task = asyncio.create_task(
+            fan_out_historical_suggestions(
+                contract=contract,
+                step=step,
+                draft_state=draft_state,
+                auth_ctx=auth_ctx,
+                priceframe=priceframe,
+            )
         )
-    )
-    market_task = asyncio.create_task(
-        fan_out_market_suggestions(
-            contract=contract,
-            step=step,
-            draft_state=draft_state,
-            auth_ctx=auth_ctx,
-            settings=settings,
-            budget=budget,
-            cache=cache,
-            client=grounding_client,
+        market_task = asyncio.create_task(
+            fan_out_market_suggestions(
+                contract=contract,
+                step=step,
+                draft_state=draft_state,
+                auth_ctx=auth_ctx,
+                settings=settings,
+                budget=budget,
+                cache=cache,
+                client=grounding_client,
+            )
         )
-    )
-    historical_events, market_payloads = await asyncio.gather(
-        historical_task, market_task
-    )
+        historical_events, market_payloads = await asyncio.gather(
+            historical_task, market_task
+        )
 
     fields_by_id: dict[str, Any] = {}
     for field in _get(step, "fields") or []:

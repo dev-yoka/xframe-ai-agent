@@ -10,6 +10,12 @@ from xframe_agent.observability.metrics import (
     observe_workflow_step_duration,
     setup_metrics,
 )
+from xframe_agent.observability.tracing import (
+    suggestion_fanout_span,
+    tool_span,
+    workflow_session_span,
+    workflow_step_span,
+)
 
 __all__ = [
     "WorkflowStepTimer",
@@ -20,4 +26,8 @@ __all__ = [
     "observe_web_research_cost",
     "observe_workflow_step_duration",
     "setup_metrics",
+    "suggestion_fanout_span",
+    "tool_span",
+    "workflow_session_span",
+    "workflow_step_span",
 ]

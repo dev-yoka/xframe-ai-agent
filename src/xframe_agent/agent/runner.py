@@ -52,6 +52,10 @@ from xframe_agent.models import (
     AgentToolCall,
 )
 from xframe_agent.models.agent import utc_now
+from xframe_agent.observability.tracing import (
+    tool_span,
+    workflow_session_span,
+)
 from xframe_agent.priceframe import PriceFrameClient
 from xframe_agent.priceframe.errors import PriceFrameError
 from xframe_agent.provider.base import (
@@ -136,8 +140,48 @@ class ModelRunner:
         self._settings = settings
         self._model = model
         self._priceframe = priceframe_factory
+        # ``workflow_session_span`` injects itself into this attribute when a
+        # run starts so the model-loop tool spans can attach as children. The
+        # attribute is reset to ``None`` after the run ends.
+        self._current_session_span: Any | None = None
 
     async def run(
+        self,
+        session: AsyncSession,
+        *,
+        run: AgentRun,
+        context: AuthContext,
+        history: Sequence[ChatMessage],
+    ) -> AgentRun:
+        # Wrap the whole run in a Langfuse workflow_session span. The context
+        # manager is a no-op when Langfuse isn't configured so the runtime
+        # stays fast in dev/test. We pull the conversation kind here purely
+        # for metadata — the per-step / per-tool spans are opened deeper in
+        # the runtime (step_advance, suggestions fan-out, tool dispatch).
+        conversation_for_span = await session.get(AgentConversation, run.conversation_id)
+        with workflow_session_span(
+            run_id=run.id,
+            conversation_id=run.conversation_id,
+            user_id=context.user_id,
+            contract_id=(
+                "create_pricing_request"
+                if conversation_for_span is not None
+                and conversation_for_span.kind == "create_pricing_request"
+                else None
+            ),
+        ) as session_span:
+            self._current_session_span = session_span
+            try:
+                return await self._run_inner(
+                    session,
+                    run=run,
+                    context=context,
+                    history=history,
+                )
+            finally:
+                self._current_session_span = None
+
+    async def _run_inner(
         self,
         session: AsyncSession,
         *,
@@ -617,27 +661,35 @@ class ModelRunner:
             event_type="v1.tool.started",
             payload={"tool_call_id": record.id, "tool_name": tool.name},
         )
-        try:
-            result_model = await tool.execute(parsed, context, self._priceframe)
-        except PriceFrameError as exc:
-            return await self._record_tool_failure(
-                session,
-                proposal=proposal,
-                tool=tool,
-                record=record,
-                cause="priceframe_error",
-                detail=str(exc),
-            )
-        except ValueError as exc:
-            # Local tool-side validation (e.g., SetFxSpread applied < minimum).
-            return await self._record_tool_failure(
-                session,
-                proposal=proposal,
-                tool=tool,
-                record=record,
-                cause="tool_validation_error",
-                detail=str(exc),
-            )
+        # Open a leaf span for the tool call. The parent attaches to the
+        # active workflow-session span when Langfuse is configured; the
+        # context manager is a no-op otherwise.
+        with tool_span(
+            self._current_session_span,
+            tool_name=tool.name,
+            input_summary={"call_id": proposal.call_id},
+        ):
+            try:
+                result_model = await tool.execute(parsed, context, self._priceframe)
+            except PriceFrameError as exc:
+                return await self._record_tool_failure(
+                    session,
+                    proposal=proposal,
+                    tool=tool,
+                    record=record,
+                    cause="priceframe_error",
+                    detail=str(exc),
+                )
+            except ValueError as exc:
+                # Local tool-side validation (e.g., SetFxSpread applied < minimum).
+                return await self._record_tool_failure(
+                    session,
+                    proposal=proposal,
+                    tool=tool,
+                    record=record,
+                    cause="tool_validation_error",
+                    detail=str(exc),
+                )
         dumped = result_model.model_dump(mode="json")
         projected = tool.project_for_model(dumped)
         record.status = "succeeded"
