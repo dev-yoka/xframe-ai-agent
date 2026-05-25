@@ -10,7 +10,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 
 class Id(StrEnum):
@@ -166,6 +166,10 @@ class FieldModel(BaseModel):
     ui: Ui | None = None
 
 
+class EssentialFieldId(RootModel[str]):
+    root: str = Field(..., min_length=1)
+
+
 class OnComplete(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -184,6 +188,7 @@ class Step(BaseModel):
     approval_mode: ApprovalMode
     prerequisites: Prerequisites | None = None
     fields: list[FieldModel]
+    essential_field_ids: list[EssentialFieldId] | None = None
     on_complete: OnComplete | None = None
 
 

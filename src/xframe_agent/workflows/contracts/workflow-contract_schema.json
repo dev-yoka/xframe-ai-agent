@@ -300,6 +300,13 @@
               "additionalProperties": false
             }
           },
+          "essential_field_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
           "on_complete": {
             "type": "object",
             "properties": {
