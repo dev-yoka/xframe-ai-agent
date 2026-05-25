@@ -11,6 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from xframe_agent.models import AgentRunEvent
 from xframe_agent.observability.metrics import observe_workflow_step_duration
 
+# M2.1.B — Wizard step proposal event names. The agent emits ``...step.proposed``
+# when entering a step with declared ``essential_field_ids``; the wizard then
+# echoes the user's decision back via the step_proposal_decision endpoint which
+# emits the matching ``...proposal_accepted`` or ``...proposal_dismissed`` event.
+EVENT_WORKFLOW_STEP_PROPOSED = "v1.workflow.step.proposed"
+EVENT_WORKFLOW_STEP_PROPOSAL_ACCEPTED = "v1.workflow.step.proposal_accepted"
+EVENT_WORKFLOW_STEP_PROPOSAL_DISMISSED = "v1.workflow.step.proposal_dismissed"
+
 
 async def append_run_event(
     session: AsyncSession,
