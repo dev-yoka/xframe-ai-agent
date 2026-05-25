@@ -41,6 +41,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xframe_agent.agent.events import append_run_event
+from xframe_agent.agent.suggestions import emit_historical_suggestions
 from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.models import (
     AgentRun,
@@ -49,6 +50,7 @@ from xframe_agent.models import (
     AgentWorkflowDraft,
 )
 from xframe_agent.models.agent import utc_now
+from xframe_agent.priceframe import PriceFrameClient
 from xframe_agent.tools.registry import tool_registry
 
 CONTRACT_DIR = Path(__file__).resolve().parent.parent / "workflows" / "contracts"
@@ -447,13 +449,112 @@ async def emit_advance_event(
         )
 
 
+def next_step_after(
+    contract: Mapping[str, Any],
+    current_step_id: str,
+) -> Mapping[str, Any] | None:
+    """Return the step immediately following ``current_step_id`` in the contract.
+
+    Uses the declared ``steps`` order — which is also the wizard's tab order —
+    so per-tab advance always lands on the next tab the user will see. Returns
+    ``None`` when the current step is the last one (e.g. ``approvals``), which
+    signals "no successor to enter".
+    """
+
+    steps = contract.get("steps") if isinstance(contract, Mapping) else None
+    if not isinstance(steps, list):
+        return None
+    found = False
+    for step in steps:
+        if not isinstance(step, Mapping):
+            continue
+        if found:
+            return step
+        if step.get("id") == current_step_id:
+            found = True
+    return None
+
+
+def step_entered_payload(
+    contract: Mapping[str, Any],
+    step: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build the ``v1.workflow.step.entered`` payload for an arbitrary step.
+
+    Mirrors :func:`create_pricing_request_step_entered_payload` but works for any
+    step in any contract, so per-tab advances can announce the next tab without
+    duplicating the workflow-specific helper.
+    """
+
+    steps = contract.get("steps") if isinstance(contract, Mapping) else []
+    total_steps = len(steps) if isinstance(steps, list) else 0
+    step_id = step.get("id")
+    step_index = 0
+    if isinstance(steps, list):
+        for index, candidate in enumerate(steps):
+            if isinstance(candidate, Mapping) and candidate.get("id") == step_id:
+                step_index = index
+                break
+    contract_id = contract.get("id") if isinstance(contract, Mapping) else None
+    contract_version = contract.get("version") if isinstance(contract, Mapping) else None
+    return {
+        "workflow": contract_id,
+        "contract_id": contract_id,
+        "contract_version": contract_version,
+        "step_id": step_id,
+        "step_index": step_index,
+        "total_steps": total_steps,
+    }
+
+
+async def emit_step_entered_with_suggestions(
+    session: AsyncSession,
+    *,
+    run_id: str,
+    contract: Mapping[str, Any],
+    step: Mapping[str, Any],
+    draft_state: Mapping[str, Any] | None,
+    auth_ctx: AuthContext,
+    priceframe: PriceFrameClient | None,
+) -> None:
+    """Emit ``v1.workflow.step.entered`` then fan out historical suggestions.
+
+    Ordering is intentional: SSE consumers depend on receiving the ``entered``
+    event before the per-field ``v1.suggestion.ready`` / ``v1.suggestion.no_signal``
+    events for that step. The fan-out is best-effort — failures are swallowed so
+    the workflow always advances.
+    """
+
+    await append_run_event(
+        session,
+        run_id=run_id,
+        event_type="v1.workflow.step.entered",
+        payload=step_entered_payload(contract, step),
+    )
+    try:
+        await emit_historical_suggestions(
+            session,
+            run_id=run_id,
+            contract=contract,
+            step=step,
+            draft_state=draft_state,
+            auth_ctx=auth_ctx,
+            priceframe=priceframe,
+        )
+    except Exception:  # noqa: BLE001 - suggestions are best-effort
+        return
+
+
 __all__ = [
     "AdvanceDecision",
     "ResolvedToolCall",
     "StepAdvanceError",
     "emit_advance_event",
+    "emit_step_entered_with_suggestions",
     "evaluate_step_advance",
     "latest_created_quote_id",
     "load_contract",
+    "next_step_after",
     "resolve_args_template",
+    "step_entered_payload",
 ]

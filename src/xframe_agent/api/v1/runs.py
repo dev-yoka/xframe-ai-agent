@@ -16,7 +16,10 @@ from xframe_agent.agent.events import append_run_event, event_payload, list_run_
 from xframe_agent.agent.workflow_advance import (
     StepAdvanceError,
     emit_advance_event,
+    emit_step_entered_with_suggestions,
     evaluate_step_advance,
+    load_contract,
+    next_step_after,
 )
 from xframe_agent.auth.dependencies import get_auth_context
 from xframe_agent.auth.jwt import AuthContext
@@ -266,6 +269,7 @@ async def request_step_advance(
     payload: StepAdvanceRequest,
     session: SessionDep,
     auth: AuthDep,
+    settings: SettingsDep,
 ) -> StepAdvanceResponse:
     """Evaluate the bundled ToolDecision for a per-tab step click of Next."""
 
@@ -298,6 +302,17 @@ async def request_step_advance(
     # stream closes cleanly; keep it ``awaiting_decision`` while a bundle is
     # pending so the client can pick up the upcoming events.
     if decision.status == "approved":
+        # Emit step.entered + historical suggestions for the next tab BEFORE
+        # the run.completed event, so SSE consumers see "you're now on tab N+1"
+        # plus any pre-filled values before the stream closes.
+        await _enter_next_step_after_advance(
+            session,
+            run_id=run.id,
+            conversation_id=run.conversation_id,
+            approved_step_id=payload.step_id,
+            auth=auth,
+            settings=settings,
+        )
         run.status = "completed"
         run.completed_at = utc_now()
         run.updated_at = utc_now()
@@ -473,6 +488,17 @@ async def decide_step_advance(
             "tool_call_ids": [tc.id for tc in bundled_tool_calls],
         },
     )
+    # Emit step.entered + historical suggestions for the next tab BEFORE the
+    # run.completed event, so SSE consumers see ordered events: advance_approved
+    # -> step.entered -> suggestion.ready/no_signal -> run.completed.
+    await _enter_next_step_after_advance(
+        session,
+        run_id=run.id,
+        conversation_id=run.conversation_id,
+        approved_step_id=payload.step_id,
+        auth=auth,
+        settings=settings,
+    )
     await append_run_event(
         session,
         run_id=run_id,
@@ -485,6 +511,66 @@ async def decide_step_advance(
         status="approved",
         tool_call_results=tool_call_results,
     )
+
+
+async def _enter_next_step_after_advance(
+    session: AsyncSession,
+    *,
+    run_id: str,
+    conversation_id: str,
+    approved_step_id: str,
+    auth: AuthContext,
+    settings: Settings,
+) -> None:
+    """Emit ``step.entered`` + fan out historical suggestions for the next step.
+
+    Per-tab advance handlers call this after the just-approved step is
+    persisted, so the wizard sees a fresh ``v1.workflow.step.entered`` plus
+    per-field suggestion events for the tab the user is about to land on. The
+    final step (``approvals``) has no successor and is skipped.
+
+    The PriceFrame client is created lazily and only when the auth context has
+    the ``agent.suggestions.read`` permission, because the only consumer of the
+    client is the historical-suggestions fan-out — which itself gates on that
+    permission. Skipping the construction keeps tests without PriceFRAME stubs
+    from needing a fake settings.
+    """
+
+    draft = await session.get(AgentWorkflowDraft, conversation_id)
+    contract_id = draft.contract_id if draft is not None else "create_pricing_request"
+    contract_version = draft.contract_version if draft is not None else "v1"
+    try:
+        contract = load_contract(contract_id, contract_version)
+    except StepAdvanceError:
+        return
+    next_step = next_step_after(contract, approved_step_id)
+    if next_step is None:
+        return
+    draft_state = draft.payload if draft is not None else {}
+
+    if auth.has_permission("agent.suggestions.read"):
+        async with PriceFrameClient.from_settings(settings) as priceframe:
+            await emit_step_entered_with_suggestions(
+                session,
+                run_id=run_id,
+                contract=contract,
+                step=next_step,
+                draft_state=draft_state,
+                auth_ctx=auth,
+                priceframe=priceframe,
+            )
+    else:
+        # No permission for suggestions — still emit the entered event so the
+        # wizard knows which tab the user landed on, but skip the fan-out.
+        await emit_step_entered_with_suggestions(
+            session,
+            run_id=run_id,
+            contract=contract,
+            step=next_step,
+            draft_state=draft_state,
+            auth_ctx=auth,
+            priceframe=None,
+        )
 
 
 async def _list_proposed_tool_calls_for_step(
