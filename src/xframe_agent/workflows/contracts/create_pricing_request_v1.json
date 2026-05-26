@@ -688,8 +688,6 @@
       ],
       "essential_field_ids": [
         "sending_partner_name",
-        "opportunity_type",
-        "default_fee_currency",
         "corridor_regions",
         "corridor_countries"
       ],
@@ -1015,8 +1013,6 @@
       ],
       "essential_field_ids": [
         "fee_type",
-        "payment_schedule",
-        "standard_commitment_fee",
         "quoted_setup_price"
       ]
     },
@@ -1562,8 +1558,7 @@
         }
       ],
       "essential_field_ids": [
-        "quote_summary_notes",
-        "customer_facing_currency"
+        "quote_summary_notes"
       ]
     },
     {
@@ -1631,7 +1626,6 @@
       ],
       "essential_field_ids": [
         "legal_comments",
-        "contract_language",
         "special_terms"
       ]
     },
