@@ -8,10 +8,19 @@ from collections.abc import AsyncIterator, Mapping
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from xframe_agent.agent.conversation.cursor import get_cursor, set_cursor
+from xframe_agent.agent.conversation.events import (
+    EVENT_FIELD_ACCEPTED,
+    field_accepted_payload,
+)
+from xframe_agent.agent.conversation.runner import emit_next_prompt
+from xframe_agent.agent.conversation.sequencer import advance_cursor
+from xframe_agent.agent.conversation.validate import ValidationError, validate_answer
 from xframe_agent.agent.events import (
     EVENT_WORKFLOW_STEP_PROPOSAL_ACCEPTED,
     EVENT_WORKFLOW_STEP_PROPOSAL_DISMISSED,
@@ -651,6 +660,108 @@ async def decide_step_proposal(
     )
     await session.commit()
     return StepProposalDecisionResponse(status="accepted", populated_fields=populated_fields)
+
+
+class FieldAnswerRequest(BaseModel):
+    field_id: str
+    value: object | None = None
+
+
+def _spec_for(contract: dict[str, Any], field_id: str) -> dict[str, Any] | None:
+    for step in contract.get("steps", []):
+        for field in step.get("fields", []):
+            if isinstance(field, dict) and field.get("id") == field_id:
+                return field
+    return None
+
+
+def _step_id_for(contract: dict[str, Any], field_id: str) -> str | None:
+    for step in contract.get("steps", []):
+        if any(field.get("id") == field_id for field in step.get("fields", [])):
+            step_id = step.get("id")
+            return step_id if isinstance(step_id, str) else None
+    return None
+
+
+@router.post("/runs/{run_id}/field-answer")
+async def submit_field_answer(
+    run_id: str,
+    payload: FieldAnswerRequest,
+    session: SessionDep,
+    auth: AuthDep,
+    settings: SettingsDep,
+) -> dict[str, object]:
+    """Validate one conversational answer, persist it, and emit the next prompt.
+
+    The answer is validated against its contract FieldSpec, written into the
+    draft under its owning step's section (a brand-new ``payload`` dict so the
+    plain JSON column registers the change), and the conversation cursor is
+    advanced. A ``v1.field.accepted`` event records the accepted value, then the
+    sequencer emits the next ``v1.field.prompt`` / ``v1.conversation.recap`` /
+    ``v1.conversation.done`` event over SSE.
+    """
+
+    run = await require_run(session, auth, run_id)
+    draft = await session.get(AgentWorkflowDraft, run.conversation_id)
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No active workflow draft for this run",
+        )
+    try:
+        contract = load_contract(draft.contract_id, draft.contract_version)
+    except StepAdvanceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    spec = _spec_for(contract, payload.field_id)
+    if spec is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown field: {payload.field_id}",
+        )
+    try:
+        clean = validate_answer(spec, payload.value)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    # Reassign a brand-new dict so the plain JSON column detects the mutation.
+    new_payload: dict[str, Any] = dict(draft.payload or {})
+    step_id = _step_id_for(contract, payload.field_id) or "summary"
+    section = dict(new_payload.get(step_id) or {})
+    section[payload.field_id] = clean
+    new_payload[step_id] = section
+    new_payload = set_cursor(new_payload, advance_cursor(contract, get_cursor(new_payload)))
+    draft.payload = new_payload
+    draft.updated_at = utc_now()
+    await session.flush()
+
+    await append_run_event(
+        session,
+        run_id=run_id,
+        event_type=EVENT_FIELD_ACCEPTED,
+        payload=field_accepted_payload(payload.field_id, clean),
+    )
+    async with PriceFrameClient.from_settings(settings) as priceframe:
+        result = await emit_next_prompt(
+            session,
+            run_id=run_id,
+            contract=contract,
+            draft_payload=new_payload,
+            cursor=get_cursor(new_payload),
+            auth_ctx=auth,
+            priceframe=priceframe,
+        )
+    await session.commit()
+    return {
+        "accepted": True,
+        "next": {"kind": result.kind, "field_id": result.field_id},
+    }
 
 
 async def _enter_next_step_after_advance(
