@@ -167,6 +167,16 @@ def _default_value_for(field: Any) -> Any:
             if isinstance(value, str) and value:
                 return value
         return None
+    if field_type == "multi_enum":
+        options = _get(field, "enum_options") or []
+        if options:
+            # Offer the first option as a suggestion; the user can adjust.
+            first = options[0]
+            value = _get(first, "value")
+            if isinstance(value, str) and value:
+                return [value]
+        # Empty selection is safe and always valid.
+        return []
     if field_type == "boolean":
         return False
     if field_type in ("number", "currency", "percentage"):
@@ -175,7 +185,7 @@ def _default_value_for(field: Any) -> Any:
         if isinstance(min_value, int | float):
             return min_value
         return 0
-    # string / date / multi_enum — no safe default.
+    # string / date — no safe default.
     return None
 
 

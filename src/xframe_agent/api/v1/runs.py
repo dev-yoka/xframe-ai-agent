@@ -8,10 +8,25 @@ from collections.abc import AsyncIterator, Mapping
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
+from xframe_agent.agent.conversation.cursor import get_cursor, set_cursor
+from xframe_agent.agent.conversation.events import (
+    EVENT_CONVERSATION_COMMITTED,
+    EVENT_FIELD_ACCEPTED,
+    EVENT_FIELD_PROMPT,
+    committed_payload,
+    field_accepted_payload,
+    field_prompt_payload,
+)
+from xframe_agent.agent.conversation.recap import commit_draft
+from xframe_agent.agent.conversation.runner import emit_next_prompt
+from xframe_agent.agent.conversation.sequencer import _CONTROL_BY_TYPE, FieldPrompt, advance_cursor
+from xframe_agent.agent.conversation.start import init_conversation_draft_payload
+from xframe_agent.agent.conversation.validate import ValidationError, validate_answer
 from xframe_agent.agent.events import (
     EVENT_WORKFLOW_STEP_PROPOSAL_ACCEPTED,
     EVENT_WORKFLOW_STEP_PROPOSAL_DISMISSED,
@@ -651,6 +666,295 @@ async def decide_step_proposal(
     )
     await session.commit()
     return StepProposalDecisionResponse(status="accepted", populated_fields=populated_fields)
+
+
+@router.post("/runs/{run_id}/conversation-start")
+async def start_conversation(
+    run_id: str,
+    session: SessionDep,
+    auth: AuthDep,
+    settings: SettingsDep,
+) -> dict[str, object]:
+    """Seed an AgentWorkflowDraft if absent, then emit the first field prompt.
+
+    Idempotent: calling again when a draft already exists simply re-emits the
+    prompt for wherever the cursor currently sits, so the client can recover
+    after a disconnect without creating a duplicate draft.
+    """
+
+    run = await require_run(session, auth, run_id)
+    draft = await session.get(AgentWorkflowDraft, run.conversation_id)
+    if draft is None:
+        draft = AgentWorkflowDraft(
+            conversation_id=run.conversation_id,
+            contract_id="create_pricing_request",
+            contract_version="v1",
+            current_step_id="summary",
+            payload=init_conversation_draft_payload(),
+            step_status={},
+        )
+        session.add(draft)
+        await session.flush()
+    try:
+        contract = load_contract(draft.contract_id, draft.contract_version)
+    except StepAdvanceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    async with PriceFrameClient.from_settings(settings) as priceframe:
+        result = await emit_next_prompt(
+            session,
+            run_id=run_id,
+            contract=contract,
+            draft_payload=draft.payload,
+            cursor=get_cursor(draft.payload),
+            auth_ctx=auth,
+            priceframe=priceframe,
+        )
+    await session.commit()
+    return {"started": True, "next": {"kind": result.kind, "field_id": result.field_id}}
+
+
+class FieldAnswerRequest(BaseModel):
+    field_id: str
+    value: object | None = None
+
+
+def _spec_for(contract: dict[str, Any], field_id: str) -> dict[str, Any] | None:
+    for step in contract.get("steps", []):
+        for field in step.get("fields", []):
+            if isinstance(field, dict) and field.get("id") == field_id:
+                return field
+    return None
+
+
+def _step_id_for(contract: dict[str, Any], field_id: str) -> str | None:
+    for step in contract.get("steps", []):
+        if any(field.get("id") == field_id for field in step.get("fields", [])):
+            step_id = step.get("id")
+            return step_id if isinstance(step_id, str) else None
+    return None
+
+
+@router.post("/runs/{run_id}/field-answer")
+async def submit_field_answer(
+    run_id: str,
+    payload: FieldAnswerRequest,
+    session: SessionDep,
+    auth: AuthDep,
+    settings: SettingsDep,
+) -> dict[str, object]:
+    """Validate one conversational answer, persist it, and emit the next prompt.
+
+    The answer is validated against its contract FieldSpec, written into the
+    draft under its owning step's section (a brand-new ``payload`` dict so the
+    plain JSON column registers the change), and the conversation cursor is
+    advanced. A ``v1.field.accepted`` event records the accepted value, then the
+    sequencer emits the next ``v1.field.prompt`` / ``v1.conversation.recap`` /
+    ``v1.conversation.done`` event over SSE.
+    """
+
+    run = await require_run(session, auth, run_id)
+    draft = await session.get(AgentWorkflowDraft, run.conversation_id)
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No active workflow draft for this run",
+        )
+    try:
+        contract = load_contract(draft.contract_id, draft.contract_version)
+    except StepAdvanceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    spec = _spec_for(contract, payload.field_id)
+    if spec is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown field: {payload.field_id}",
+        )
+    try:
+        clean = validate_answer(spec, payload.value)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    # Reassign a brand-new dict so the plain JSON column detects the mutation.
+    new_payload: dict[str, Any] = dict(draft.payload or {})
+    step_id = _step_id_for(contract, payload.field_id) or "summary"
+    section = dict(new_payload.get(step_id) or {})
+    section[payload.field_id] = clean
+    new_payload[step_id] = section
+    new_payload = set_cursor(new_payload, advance_cursor(contract, get_cursor(new_payload)))
+    draft.payload = new_payload
+    draft.updated_at = utc_now()
+    await session.flush()
+
+    await append_run_event(
+        session,
+        run_id=run_id,
+        event_type=EVENT_FIELD_ACCEPTED,
+        payload=field_accepted_payload(payload.field_id, clean),
+    )
+    async with PriceFrameClient.from_settings(settings) as priceframe:
+        result = await emit_next_prompt(
+            session,
+            run_id=run_id,
+            contract=contract,
+            draft_payload=new_payload,
+            cursor=get_cursor(new_payload),
+            auth_ctx=auth,
+            priceframe=priceframe,
+        )
+    await session.commit()
+    return {
+        "accepted": True,
+        "next": {"kind": result.kind, "field_id": result.field_id},
+    }
+
+
+def _build_field_prompt_for(contract: dict[str, Any], field_id: str) -> FieldPrompt | None:
+    """Find the field spec in the contract and construct a FieldPrompt for re-ask."""
+    # Determine which phase owns this field_id.
+    phase_id = ""
+    for phase in (contract.get("conversation") or {}).get("phases", []):
+        if field_id in phase.get("field_ids", []):
+            phase_id = phase["id"]
+            break
+
+    for step in contract.get("steps", []):
+        for f in step.get("fields", []):
+            if f.get("id") == field_id:
+                return FieldPrompt(
+                    phase_id=phase_id,
+                    field_id=field_id,
+                    label=f.get("label", field_id),
+                    type=f.get("type", "string"),
+                    control=_CONTROL_BY_TYPE.get(f.get("type", "string"), "text"),
+                    required=bool(f.get("required", False)),
+                    requires_explicit_confirm=bool(f.get("requires_explicit_confirm", False)),
+                    options=f.get("enum_options"),
+                    options_source=f.get("options_source"),
+                    ui=f.get("ui"),
+                )
+    return None
+
+
+class ReAskFieldRequest(BaseModel):
+    field_id: str
+
+
+@router.post("/runs/{run_id}/re-ask-field")
+async def re_ask_field(
+    run_id: str,
+    payload: ReAskFieldRequest,
+    session: SessionDep,
+    auth: AuthDep,
+    settings: SettingsDep,
+) -> dict[str, object]:
+    """Re-emit a field prompt mid-conversation so the user can edit a previously-answered field.
+
+    Looks up the field spec from the active contract, constructs a ``FieldPrompt``,
+    and appends a ``v1.field.prompt`` event for the run. For money fields that
+    require explicit confirmation (``requires_explicit_confirm=True``) the
+    suggestion is re-fetched best-effort. The SSE stream delivers the re-emitted
+    prompt to the client, which will set ``activePrompt`` without disturbing the
+    draft cursor.
+    """
+
+    run = await require_run(session, auth, run_id)
+    draft = await session.get(AgentWorkflowDraft, run.conversation_id)
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No active workflow draft for this run",
+        )
+    try:
+        contract = load_contract(draft.contract_id, draft.contract_version)
+    except StepAdvanceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    prompt = _build_field_prompt_for(contract, payload.field_id)
+    if prompt is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown field: {payload.field_id}",
+        )
+
+    # Re-fetch suggestion for money fields (best-effort).
+    from xframe_agent.agent.conversation.runner import _suggestion_for
+
+    suggestion: dict[str, Any] | None = None
+    if prompt.requires_explicit_confirm:
+        async with PriceFrameClient.from_settings(settings) as priceframe:
+            suggestion = await _suggestion_for(
+                prompt,
+                contract,
+                draft.payload or {},
+                auth,
+                priceframe,
+            )
+
+    await append_run_event(
+        session,
+        run_id=run_id,
+        event_type=EVENT_FIELD_PROMPT,
+        payload=field_prompt_payload(prompt, suggestion),
+    )
+    await session.commit()
+    return {"re_asked": True, "field_id": payload.field_id}
+
+
+@router.post("/runs/{run_id}/conversation-commit")
+async def commit_conversation(
+    run_id: str,
+    session: SessionDep,
+    auth: AuthDep,
+    settings: SettingsDep,
+) -> dict[str, object]:
+    """Create + price the collected draft (never submit for approval).
+
+    Delegates the single write batch to ``commit_draft`` (create_quotation and,
+    when corridors were selected, bulk_add_corridors). A
+    ``v1.conversation.committed`` event records the created quote id plus which
+    tools applied and which failed.
+    """
+
+    run = await require_run(session, auth, run_id)
+    draft = await session.get(AgentWorkflowDraft, run.conversation_id)
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No active workflow draft",
+        )
+    try:
+        contract = load_contract(draft.contract_id, draft.contract_version)
+    except StepAdvanceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    async with PriceFrameClient.from_settings(settings) as priceframe:
+        result = await commit_draft(
+            contract, draft.payload or {}, auth_ctx=auth, priceframe=priceframe
+        )
+    await append_run_event(
+        session,
+        run_id=run_id,
+        event_type=EVENT_CONVERSATION_COMMITTED,
+        payload=committed_payload(result["quote_id"], result["applied"], result["failed"]),
+    )
+    await session.commit()
+    return {"committed": True, **result}
 
 
 async def _enter_next_step_after_advance(
