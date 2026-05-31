@@ -201,3 +201,23 @@ async def test_conversation_commit_without_draft_returns_409(agent_client: Async
         f"/api/v1/agent/runs/{run_id}/conversation-commit"
     )
     assert response.status_code == 409, response.text
+
+
+async def test_conversation_start_seeds_draft_and_emits_first_prompt(
+    agent_client: AsyncClient,
+) -> None:
+    """POST /conversation-start without a prior draft seeds one and emits the first prompt."""
+    # Create conversation + run but deliberately skip _seed_draft so the draft is absent.
+    _conversation_id, run_id = await _start_wizard(agent_client)
+
+    response = await agent_client.post(
+        f"/api/v1/agent/runs/{run_id}/conversation-start"
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["started"] is True
+    assert body["next"]["kind"] == "prompt"
+    assert body["next"]["field_id"] == "sending_partner_name"
+
+    event_types = await _run_event_types(agent_client, run_id)
+    assert "v1.field.prompt" in event_types

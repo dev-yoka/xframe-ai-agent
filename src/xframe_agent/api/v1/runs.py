@@ -23,6 +23,7 @@ from xframe_agent.agent.conversation.events import (
 from xframe_agent.agent.conversation.recap import commit_draft
 from xframe_agent.agent.conversation.runner import emit_next_prompt
 from xframe_agent.agent.conversation.sequencer import advance_cursor
+from xframe_agent.agent.conversation.start import init_conversation_draft_payload
 from xframe_agent.agent.conversation.validate import ValidationError, validate_answer
 from xframe_agent.agent.events import (
     EVENT_WORKFLOW_STEP_PROPOSAL_ACCEPTED,
@@ -663,6 +664,54 @@ async def decide_step_proposal(
     )
     await session.commit()
     return StepProposalDecisionResponse(status="accepted", populated_fields=populated_fields)
+
+
+@router.post("/runs/{run_id}/conversation-start")
+async def start_conversation(
+    run_id: str,
+    session: SessionDep,
+    auth: AuthDep,
+    settings: SettingsDep,
+) -> dict[str, object]:
+    """Seed an AgentWorkflowDraft if absent, then emit the first field prompt.
+
+    Idempotent: calling again when a draft already exists simply re-emits the
+    prompt for wherever the cursor currently sits, so the client can recover
+    after a disconnect without creating a duplicate draft.
+    """
+
+    run = await require_run(session, auth, run_id)
+    draft = await session.get(AgentWorkflowDraft, run.conversation_id)
+    if draft is None:
+        draft = AgentWorkflowDraft(
+            conversation_id=run.conversation_id,
+            contract_id="create_pricing_request",
+            contract_version="v1",
+            current_step_id="summary",
+            payload=init_conversation_draft_payload(),
+            step_status={},
+        )
+        session.add(draft)
+        await session.flush()
+    try:
+        contract = load_contract(draft.contract_id, draft.contract_version)
+    except StepAdvanceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+    async with PriceFrameClient.from_settings(settings) as priceframe:
+        result = await emit_next_prompt(
+            session,
+            run_id=run_id,
+            contract=contract,
+            draft_payload=draft.payload,
+            cursor=get_cursor(draft.payload),
+            auth_ctx=auth,
+            priceframe=priceframe,
+        )
+    await session.commit()
+    return {"started": True, "next": {"kind": result.kind, "field_id": result.field_id}}
 
 
 class FieldAnswerRequest(BaseModel):
