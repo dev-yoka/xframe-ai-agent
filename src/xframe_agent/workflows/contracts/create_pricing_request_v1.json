@@ -1562,6 +1562,8 @@
         }
       ],
       "essential_field_ids": [
+        "customer_facing_currency",
+        "include_setup_fees",
         "quote_summary_notes"
       ]
     },
