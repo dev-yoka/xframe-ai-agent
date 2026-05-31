@@ -221,3 +221,34 @@ async def test_conversation_start_seeds_draft_and_emits_first_prompt(
 
     event_types = await _run_event_types(agent_client, run_id)
     assert "v1.field.prompt" in event_types
+
+
+@pytest.mark.asyncio
+async def test_re_ask_field_emits_prompt_event(agent_client: AsyncClient) -> None:
+    conversation_id, run_id = await _start_wizard(agent_client)
+    await _seed_draft(agent_client, conversation_id, {"summary": {}})
+
+    resp = await agent_client.post(
+        f"/api/v1/agent/runs/{run_id}/re-ask-field",
+        json={"field_id": "sending_partner_name"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["re_asked"] is True
+    assert body["field_id"] == "sending_partner_name"
+
+    # A v1.field.prompt event must now exist for this run.
+    event_types = await _run_event_types(agent_client, run_id)
+    assert "v1.field.prompt" in event_types
+
+
+@pytest.mark.asyncio
+async def test_re_ask_field_rejects_unknown_field(agent_client: AsyncClient) -> None:
+    conversation_id, run_id = await _start_wizard(agent_client)
+    await _seed_draft(agent_client, conversation_id, {"summary": {}})
+
+    resp = await agent_client.post(
+        f"/api/v1/agent/runs/{run_id}/re-ask-field",
+        json={"field_id": "nonexistent_field_xyz"},
+    )
+    assert resp.status_code == 422, resp.text

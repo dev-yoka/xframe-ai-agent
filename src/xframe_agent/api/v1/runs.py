@@ -17,12 +17,14 @@ from xframe_agent.agent.conversation.cursor import get_cursor, set_cursor
 from xframe_agent.agent.conversation.events import (
     EVENT_CONVERSATION_COMMITTED,
     EVENT_FIELD_ACCEPTED,
+    EVENT_FIELD_PROMPT,
     committed_payload,
     field_accepted_payload,
+    field_prompt_payload,
 )
 from xframe_agent.agent.conversation.recap import commit_draft
 from xframe_agent.agent.conversation.runner import emit_next_prompt
-from xframe_agent.agent.conversation.sequencer import advance_cursor
+from xframe_agent.agent.conversation.sequencer import _CONTROL_BY_TYPE, FieldPrompt, advance_cursor
 from xframe_agent.agent.conversation.start import init_conversation_draft_payload
 from xframe_agent.agent.conversation.validate import ValidationError, validate_answer
 from xframe_agent.agent.events import (
@@ -814,6 +816,101 @@ async def submit_field_answer(
         "accepted": True,
         "next": {"kind": result.kind, "field_id": result.field_id},
     }
+
+
+def _build_field_prompt_for(contract: dict[str, Any], field_id: str) -> FieldPrompt | None:
+    """Find the field spec in the contract and construct a FieldPrompt for re-ask."""
+    # Determine which phase owns this field_id.
+    phase_id = ""
+    for phase in (contract.get("conversation") or {}).get("phases", []):
+        if field_id in phase.get("field_ids", []):
+            phase_id = phase["id"]
+            break
+
+    for step in contract.get("steps", []):
+        for f in step.get("fields", []):
+            if f.get("id") == field_id:
+                return FieldPrompt(
+                    phase_id=phase_id,
+                    field_id=field_id,
+                    label=f.get("label", field_id),
+                    type=f.get("type", "string"),
+                    control=_CONTROL_BY_TYPE.get(f.get("type", "string"), "text"),
+                    required=bool(f.get("required", False)),
+                    requires_explicit_confirm=bool(f.get("requires_explicit_confirm", False)),
+                    options=f.get("enum_options"),
+                    options_source=f.get("options_source"),
+                    ui=f.get("ui"),
+                )
+    return None
+
+
+class ReAskFieldRequest(BaseModel):
+    field_id: str
+
+
+@router.post("/runs/{run_id}/re-ask-field")
+async def re_ask_field(
+    run_id: str,
+    payload: ReAskFieldRequest,
+    session: SessionDep,
+    auth: AuthDep,
+    settings: SettingsDep,
+) -> dict[str, object]:
+    """Re-emit a field prompt mid-conversation so the user can edit a previously-answered field.
+
+    Looks up the field spec from the active contract, constructs a ``FieldPrompt``,
+    and appends a ``v1.field.prompt`` event for the run. For money fields that
+    require explicit confirmation (``requires_explicit_confirm=True``) the
+    suggestion is re-fetched best-effort. The SSE stream delivers the re-emitted
+    prompt to the client, which will set ``activePrompt`` without disturbing the
+    draft cursor.
+    """
+
+    run = await require_run(session, auth, run_id)
+    draft = await session.get(AgentWorkflowDraft, run.conversation_id)
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No active workflow draft for this run",
+        )
+    try:
+        contract = load_contract(draft.contract_id, draft.contract_version)
+    except StepAdvanceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    prompt = _build_field_prompt_for(contract, payload.field_id)
+    if prompt is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown field: {payload.field_id}",
+        )
+
+    # Re-fetch suggestion for money fields (best-effort).
+    from xframe_agent.agent.conversation.runner import _suggestion_for
+
+    suggestion: dict[str, Any] | None = None
+    if prompt.requires_explicit_confirm:
+        async with PriceFrameClient.from_settings(settings) as priceframe:
+            suggestion = await _suggestion_for(
+                prompt,
+                contract,
+                draft.payload or {},
+                auth,
+                priceframe,
+            )
+
+    await append_run_event(
+        session,
+        run_id=run_id,
+        event_type=EVENT_FIELD_PROMPT,
+        payload=field_prompt_payload(prompt, suggestion),
+    )
+    await session.commit()
+    return {"re_asked": True, "field_id": payload.field_id}
 
 
 @router.post("/runs/{run_id}/conversation-commit")
