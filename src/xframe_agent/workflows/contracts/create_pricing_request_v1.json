@@ -1562,9 +1562,9 @@
         }
       ],
       "essential_field_ids": [
+        "quote_summary_notes",
         "customer_facing_currency",
-        "include_setup_fees",
-        "quote_summary_notes"
+        "include_setup_fees"
       ]
     },
     {
