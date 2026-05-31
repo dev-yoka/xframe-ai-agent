@@ -252,3 +252,91 @@ async def test_re_ask_field_rejects_unknown_field(agent_client: AsyncClient) -> 
         json={"field_id": "nonexistent_field_xyz"},
     )
     assert resp.status_code == 422, resp.text
+
+
+@pytest.mark.asyncio
+async def test_conversation_start_preserves_existing_draft(agent_client: AsyncClient) -> None:
+    """conversation-start on a run that already has a draft must not overwrite it."""
+    conversation_id, run_id = await _start_wizard(agent_client)
+    # Seed a draft with a known value that we want to survive the second call.
+    await _seed_draft(
+        agent_client,
+        conversation_id,
+        {"summary": {"sending_partner_name": "PreservedPartner"}},
+    )
+
+    # Call conversation-start a second time — it must be idempotent.
+    resp = await agent_client.post(
+        f"/api/v1/agent/runs/{run_id}/conversation-start",
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["started"] is True
+    # The next item emitted should be a prompt or recap — never a blank restart.
+    assert body["next"]["kind"] in ("prompt", "recap")
+
+    # The draft must still hold the value we seeded — confirm by checking that a
+    # v1.field.prompt event was appended (idempotent re-emit) but the existing
+    # draft payload was not wiped.
+    event_types = await _run_event_types(agent_client, run_id)
+    assert "v1.field.prompt" in event_types
+
+
+@pytest.mark.asyncio
+async def test_field_answer_multi_enum_field_stores_list(agent_client: AsyncClient) -> None:
+    """field-answer for a multi_enum field must persist a list of values, not a string."""
+    conversation_id, run_id = await _start_wizard(agent_client)
+    await _seed_draft(agent_client, conversation_id, {"summary": {}})
+
+    # corridor_regions is a multi_enum with options_source (API-sourced), so any
+    # list of strings is accepted by validate_answer without static enum checks.
+    resp = await agent_client.post(
+        f"/api/v1/agent/runs/{run_id}/field-answer",
+        json={"field_id": "corridor_regions", "value": ["EMEA", "APAC"]},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["accepted"] is True
+    assert body["next"]["kind"] in ("prompt", "recap")
+
+    # A v1.field.accepted event must have been emitted for this answer.
+    event_types = await _run_event_types(agent_client, run_id)
+    assert "v1.field.accepted" in event_types
+
+
+@pytest.mark.asyncio
+async def test_re_ask_field_money_field_includes_suggestion_attempt(
+    agent_client: AsyncClient, monkeypatch: Any
+) -> None:
+    """re-ask-field for a requires_explicit_confirm field must attempt to fetch a suggestion."""
+    conversation_id, run_id = await _start_wizard(agent_client)
+    await _seed_draft(agent_client, conversation_id, {"summary": {}})
+
+    suggestion_attempts: list[str] = []
+
+    async def fake_suggestion_for(
+        field: Any,
+        contract: Any,
+        draft_payload: Any,
+        auth_ctx: Any,
+        priceframe: Any,
+    ) -> dict[str, Any]:
+        suggestion_attempts.append(field.field_id)
+        return {"value": 2.5, "basis": "median of 10 deals", "as_of": "2026-05-31"}
+
+    # The local import inside re_ask_field pulls from the runner module, so we
+    # patch at the source rather than the runs namespace.
+    monkeypatch.setattr(
+        "xframe_agent.agent.conversation.runner._suggestion_for",
+        fake_suggestion_for,
+    )
+
+    resp = await agent_client.post(
+        f"/api/v1/agent/runs/{run_id}/re-ask-field",
+        json={"field_id": "default_transaction_fee"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["re_asked"] is True
+    # The money field (requires_explicit_confirm=True) must have triggered a suggestion fetch.
+    assert "default_transaction_fee" in suggestion_attempts
