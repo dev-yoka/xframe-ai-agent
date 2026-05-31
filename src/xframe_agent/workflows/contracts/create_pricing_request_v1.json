@@ -806,7 +806,8 @@
               "min_sample_size": 3
             },
             "confidence_threshold": 0.55
-          }
+          },
+          "requires_explicit_confirm": true
         },
         {
           "id": "service_request_fee_reversal",
@@ -1116,7 +1117,8 @@
               "min_sample_size": 3
             },
             "confidence_threshold": 0.55
-          }
+          },
+          "requires_explicit_confirm": true
         },
         {
           "id": "default_fx_spread_percent",
@@ -1141,7 +1143,8 @@
               "min_sample_size": 3
             },
             "confidence_threshold": 0.55
-          }
+          },
+          "requires_explicit_confirm": true
         },
         {
           "id": "volume_assumption_usd",
@@ -1392,7 +1395,8 @@
               "min_sample_size": 3
             },
             "confidence_threshold": 0.55
-          }
+          },
+          "requires_explicit_confirm": true
         },
         {
           "id": "target_gm_percent",
@@ -1680,5 +1684,27 @@
         }
       }
     }
-  ]
+  ],
+  "conversation": {
+    "phases": [
+      {
+        "id": "identity",
+        "field_ids": [
+          "sending_partner_name",
+          "opportunity_type",
+          "corridor_regions",
+          "corridor_countries"
+        ]
+      },
+      {
+        "id": "money",
+        "field_ids": [
+          "default_transaction_fee",
+          "default_fx_spread_percent",
+          "quoted_setup_price",
+          "target_margin_percent"
+        ]
+      }
+    ]
+  }
 }
