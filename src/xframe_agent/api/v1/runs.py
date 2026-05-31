@@ -15,9 +15,12 @@ from sse_starlette.sse import EventSourceResponse
 
 from xframe_agent.agent.conversation.cursor import get_cursor, set_cursor
 from xframe_agent.agent.conversation.events import (
+    EVENT_CONVERSATION_COMMITTED,
     EVENT_FIELD_ACCEPTED,
+    committed_payload,
     field_accepted_payload,
 )
+from xframe_agent.agent.conversation.recap import commit_draft
 from xframe_agent.agent.conversation.runner import emit_next_prompt
 from xframe_agent.agent.conversation.sequencer import advance_cursor
 from xframe_agent.agent.conversation.validate import ValidationError, validate_answer
@@ -762,6 +765,50 @@ async def submit_field_answer(
         "accepted": True,
         "next": {"kind": result.kind, "field_id": result.field_id},
     }
+
+
+@router.post("/runs/{run_id}/conversation-commit")
+async def commit_conversation(
+    run_id: str,
+    session: SessionDep,
+    auth: AuthDep,
+    settings: SettingsDep,
+) -> dict[str, object]:
+    """Create + price the collected draft (never submit for approval).
+
+    Delegates the single write batch to ``commit_draft`` (create_quotation and,
+    when corridors were selected, bulk_add_corridors). A
+    ``v1.conversation.committed`` event records the created quote id plus which
+    tools applied and which failed.
+    """
+
+    run = await require_run(session, auth, run_id)
+    draft = await session.get(AgentWorkflowDraft, run.conversation_id)
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No active workflow draft",
+        )
+    try:
+        contract = load_contract(draft.contract_id, draft.contract_version)
+    except StepAdvanceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
+
+    async with PriceFrameClient.from_settings(settings) as priceframe:
+        result = await commit_draft(
+            contract, draft.payload or {}, auth_ctx=auth, priceframe=priceframe
+        )
+    await append_run_event(
+        session,
+        run_id=run_id,
+        event_type=EVENT_CONVERSATION_COMMITTED,
+        payload=committed_payload(result["quote_id"], result["applied"], result["failed"]),
+    )
+    await session.commit()
+    return {"committed": True, **result}
 
 
 async def _enter_next_step_after_advance(

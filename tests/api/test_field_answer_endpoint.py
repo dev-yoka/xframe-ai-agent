@@ -156,3 +156,48 @@ async def test_field_answer_without_draft_returns_409(agent_client: AsyncClient)
         json={"field_id": "sending_partner_name", "value": "Acme Payments"},
     )
     assert response.status_code == 409, response.text
+
+
+async def test_conversation_commit_emits_committed_event(
+    agent_client: AsyncClient, monkeypatch: Any
+) -> None:
+    conversation_id, run_id = await _start_wizard(agent_client)
+    await _seed_draft(
+        agent_client,
+        conversation_id,
+        {"summary": {"sending_partner_name": "Acme Payments", "opportunity_type": "new"}},
+    )
+
+    fake_result = {
+        "quote_id": "q-1",
+        "applied": ["create_quotation"],
+        "failed": [],
+    }
+
+    async def fake_commit_draft(contract: Any, payload: Any, **_kw: Any) -> dict[str, Any]:
+        return fake_result
+
+    monkeypatch.setattr(
+        "xframe_agent.api.v1.runs.commit_draft", fake_commit_draft
+    )
+
+    response = await agent_client.post(
+        f"/api/v1/agent/runs/{run_id}/conversation-commit"
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["committed"] is True
+    assert body["quote_id"] == "q-1"
+    assert body["applied"] == ["create_quotation"]
+
+    event_types = await _run_event_types(agent_client, run_id)
+    assert "v1.conversation.committed" in event_types
+
+
+async def test_conversation_commit_without_draft_returns_409(agent_client: AsyncClient) -> None:
+    _conversation_id, run_id = await _start_wizard(agent_client)
+
+    response = await agent_client.post(
+        f"/api/v1/agent/runs/{run_id}/conversation-commit"
+    )
+    assert response.status_code == 409, response.text
