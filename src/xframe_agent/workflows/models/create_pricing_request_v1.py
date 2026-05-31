@@ -164,6 +164,7 @@ class FieldModel(BaseModel):
     validation: Validation | None = None
     suggestion: Suggestion | None = None
     ui: Ui | None = None
+    requires_explicit_confirm: bool | None = None
 
 
 class EssentialFieldId(RootModel[str]):
@@ -192,6 +193,25 @@ class Step(BaseModel):
     on_complete: OnComplete | None = None
 
 
+class FieldId(RootModel[str]):
+    root: str = Field(..., min_length=1)
+
+
+class Phase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str = Field(..., min_length=1)
+    field_ids: list[FieldId] = Field(..., min_length=1)
+
+
+class Conversation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    phases: list[Phase] = Field(..., min_length=1)
+
+
 class WorkflowContract(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -200,3 +220,4 @@ class WorkflowContract(BaseModel):
     version: str = Field(..., min_length=1)
     title: str = Field(..., min_length=1)
     steps: list[Step]
+    conversation: Conversation | None = None
