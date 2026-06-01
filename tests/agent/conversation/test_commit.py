@@ -16,73 +16,112 @@ CONTRACT = {
     ]}],
 }
 
+
 def test_build_recap_partitions_collected_vs_defaulted():
     draft = {"summary": {"sending_partner_name": "Acme", "opportunity_type": "new"}}
     collected, defaulted = build_recap(CONTRACT, draft)
     assert collected["sending_partner_name"] == "Acme"
     assert "sending_partner_name" not in defaulted
 
+
+class _FakePF:
+    """Fake PriceFrameClient: captures post_json calls, returns a quote response."""
+
+    def __init__(self, corridors=None, post_json_raises=False, quote_id="q-123"):
+        self._corridors = corridors or []
+        self._post_json_raises = post_json_raises
+        self._quote_id = quote_id
+        self.post_calls: list[dict] = []
+
+    async def post_json(self, path, *, jwt_raw="", json=None, **kw):
+        if self._post_json_raises:
+            raise RuntimeError("post_json boom")
+        self.post_calls.append({"path": path, "json": json})
+        return {"success": True, "data": {"id": self._quote_id}}
+
+    async def get_json(self, path, *, jwt_raw="", **kw):
+        return self._corridors
+
+
 @pytest.mark.asyncio
 async def test_commit_draft_creates_quote_without_submitting(monkeypatch):
-    calls = []
-    class FakeTool:
-        def __init__(self, name): self.name = name
+    pf = _FakePF()
+    bulk_calls = []
+
+    class FakeBulkTool:
         async def execute(self, args, auth, pf):
-            calls.append(self.name)
-            class R: data = {"quote_id": "q-123"}
+            bulk_calls.append("bulk_add_corridors")
+            class R: data = {"ok": True}
             return R()
-    monkeypatch.setattr("xframe_agent.agent.conversation.recap._create_tool", lambda: FakeTool("create_quotation"))
-    monkeypatch.setattr("xframe_agent.agent.conversation.recap._corridors_tool", lambda: FakeTool("bulk_add_corridors"))
-    result = await commit_draft(CONTRACT, {"summary": {"sending_partner_name": "Acme", "opportunity_type": "new"}},
-                                auth_ctx=object(), priceframe=object())
+
+    monkeypatch.setattr("xframe_agent.agent.conversation.recap._corridors_tool", lambda: FakeBulkTool())
+
+    result = await commit_draft(
+        CONTRACT,
+        {"summary": {"sending_partner_name": "Acme", "opportunity_type": "new"}},
+        auth_ctx=object(), priceframe=pf,
+    )
     assert result["quote_id"] == "q-123"
-    assert "submit_for_approval" not in calls
-    assert "create_quotation" in calls
+    assert "create_quotation" in result["applied"]
+    assert "submit_for_approval" not in result["applied"]
+    # Verify that the POST /api/quotes call included the partner name
+    assert pf.post_calls
+    assert pf.post_calls[0]["json"]["name"] == "Acme"
+
+
+@pytest.mark.asyncio
+async def test_commit_draft_includes_all_collected_fields(monkeypatch):
+    """commit_draft must map conversation answers into the appropriate snapshot fields."""
+    pf = _FakePF()
+    monkeypatch.setattr("xframe_agent.agent.conversation.recap._corridors_tool", lambda: _FakeBulkTool())
+
+    draft = {"summary": {
+        "sending_partner_name": "Acme",
+        "opportunity_type": "new",
+        "integration_type": "New API Integration",
+        "fx_model": "Traditional FX",
+        "default_transaction_fee": 2.5,
+        "target_margin_percent": 30.0,
+        "legal_comments": "Standard terms",
+    }}
+    result = await commit_draft(CONTRACT, draft, auth_ctx=object(), priceframe=pf)
+    assert result["quote_id"] == "q-123"
+    sent = pf.post_calls[0]["json"]
+    # Structured fields
+    assert sent["name"] == "Acme"
+    # Technical snapshot
+    assert sent.get("technicalDetailsSnapshot", {}).get("integrationType") == "New API Integration"
+    assert sent.get("technicalDetailsSnapshot", {}).get("fxModel") == "Traditional FX"
+    # Pricing tool snapshot
+    assert sent.get("pricingToolSnapshot", {}).get("defaultTransactionFee") == 2.5
+    # P&L snapshot
+    assert sent.get("pricingProjectionsSnapshot", {}).get("targetMarginPercent") == 30.0
+    # Quoting snapshot
+    assert sent.get("quotingDetailsSnapshot", {}).get("legalComments") == "Standard terms"
+
+
+class _FakeBulkTool:
+    async def execute(self, args, auth, pf):
+        class R: data = {"ok": True}
+        return R()
 
 
 @pytest.mark.asyncio
 async def test_commit_draft_when_corridor_resolution_returns_empty(monkeypatch):
     """When corridor lookup returns no matches, bulk_add_corridors is skipped."""
-    calls = []
-
-    class FakeCreateTool:
-        async def execute(self, args, auth, pf):
-            calls.append("create_quotation")
-            class R:
-                data = {"quote_id": "q-empty-corridors"}
-            return R()
-
-    class FakeLookupTool:
-        async def execute(self, args, auth, pf):
-            calls.append("lookup_corridors")
-            # Return empty corridor list — nothing matches the user's selection.
-            class R:
-                data = {"corridors": []}
-            return R()
-
-    class FakePF:
-        """Fake PriceFrameClient that returns an empty corridor list."""
-        async def get_json(self, path: str, *, jwt_raw: str = "", **kw: object) -> list[object]:
-            return []  # no corridors → resolution returns []
-
-    monkeypatch.setattr(
-        "xframe_agent.agent.conversation.recap._create_tool",
-        lambda: FakeCreateTool(),
-    )
+    pf = _FakePF(corridors=[])  # get_json returns [] → no corridor IDs resolved
 
     draft = {
         "summary": {
             "sending_partner_name": "Acme",
             "opportunity_type": "new",
             "corridor_regions": ["EMEA"],
-            "corridor_countries": ["Nigeria"],  # present but lookup returns no matches
+            "corridor_countries": ["Nigeria"],
         }
     }
-    result = await commit_draft(CONTRACT, draft, auth_ctx=object(), priceframe=FakePF())
+    result = await commit_draft(CONTRACT, draft, auth_ctx=object(), priceframe=pf)
 
-    assert result["quote_id"] == "q-empty-corridors"
+    assert result["quote_id"] == "q-123"
     assert "create_quotation" in result["applied"]
-    # bulk_add_corridors must be skipped entirely when corridor resolution yields []
     assert "bulk_add_corridors" not in result["applied"]
-    # No failure should be recorded — empty resolution is a clean no-op, not an error
     assert result["failed"] == []

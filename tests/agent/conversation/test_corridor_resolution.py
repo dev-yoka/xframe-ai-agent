@@ -62,36 +62,31 @@ def _draft(**overrides: Any) -> dict[str, Any]:
 
 
 class _FakePF:
-    """Fake PriceFrameClient that serves ACTIVE_CORRIDORS as a JSON array."""
+    """Fake PriceFrameClient: serves corridors via get_json and records post_json calls."""
 
     def __init__(self, corridors: list[Any] | None = None, raise_on_get: bool = False) -> None:
         self._corridors = corridors if corridors is not None else ACTIVE_CORRIDORS
         self._raise_on_get = raise_on_get
 
-    async def get_json(self, path: str, *, jwt_raw: str, params: Any = None) -> Any:
+    async def get_json(self, path: str, *, jwt_raw: str = "", params: Any = None) -> Any:
         if self._raise_on_get:
             raise RuntimeError("corridor lookup boom")
         return self._corridors
 
+    async def post_json(self, path: str, *, jwt_raw: str = "", json: Any = None, **kw: Any) -> Any:
+        """Return a minimal quote creation response."""
+        return {"success": True, "data": {"id": 101}}
+
 
 @pytest.mark.asyncio
 async def test_selecting_countries_resolves_ids_and_bulk_adds(monkeypatch: Any) -> None:
-    create_calls: list[Any] = []
     bulk_calls: list[Any] = []
-
-    class FakeCreate:
-        async def execute(self, args: Any, auth: Any, pf: Any) -> _FakeResult:
-            create_calls.append(args)
-            return _FakeResult({"quote_id": 101})
 
     class FakeBulk:
         async def execute(self, args: Any, auth: Any, pf: Any) -> _FakeResult:
             bulk_calls.append(args)
             return _FakeResult({"ok": True})
 
-    monkeypatch.setattr(
-        "xframe_agent.agent.conversation.recap._create_tool", lambda: FakeCreate()
-    )
     monkeypatch.setattr(
         "xframe_agent.agent.conversation.recap._corridors_tool", lambda: FakeBulk()
     )
@@ -118,16 +113,11 @@ async def test_optional_filters_narrow_resolution(monkeypatch: Any) -> None:
     ]
     bulk_calls: list[Any] = []
 
-    class FakeCreate:
-        async def execute(self, args: Any, auth: Any, pf: Any) -> _FakeResult:
-            return _FakeResult({"quote_id": 102})
-
     class FakeBulk:
         async def execute(self, args: Any, auth: Any, pf: Any) -> _FakeResult:
             bulk_calls.append(args)
             return _FakeResult({"ok": True})
 
-    monkeypatch.setattr("xframe_agent.agent.conversation.recap._create_tool", lambda: FakeCreate())
     monkeypatch.setattr("xframe_agent.agent.conversation.recap._corridors_tool", lambda: FakeBulk())
 
     result = await commit_draft(
@@ -143,25 +133,23 @@ async def test_optional_filters_narrow_resolution(monkeypatch: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_lookup_failure_records_failed_but_keeps_quote(monkeypatch: Any) -> None:
+    """When corridor lookup raises, quote is still created and failure is recorded."""
     bulk_calls: list[Any] = []
-
-    class FakeCreate:
-        async def execute(self, args: Any, auth: Any, pf: Any) -> _FakeResult:
-            return _FakeResult({"quote_id": 103})
 
     class FakeBulk:
         async def execute(self, args: Any, auth: Any, pf: Any) -> _FakeResult:
             bulk_calls.append(args)
             return _FakeResult({"ok": True})
 
-    monkeypatch.setattr("xframe_agent.agent.conversation.recap._create_tool", lambda: FakeCreate())
     monkeypatch.setattr("xframe_agent.agent.conversation.recap._corridors_tool", lambda: FakeBulk())
 
+    # _FakePF with raise_on_get=True: get_json raises → corridor resolution fails
+    # post_json still returns a valid quote so the quote is created
     result = await commit_draft(
         CONTRACT, _draft(), auth_ctx=object(), priceframe=_FakePF(raise_on_get=True)
     )
 
-    assert result["quote_id"] == 103
+    assert result["quote_id"] == 101  # post_json response id
     assert "create_quotation" in result["applied"]
     assert "bulk_add_corridors" not in result["applied"]
     assert bulk_calls == []
