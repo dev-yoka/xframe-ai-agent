@@ -771,7 +771,8 @@
               "min_sample_size": 3
             },
             "confidence_threshold": 0.55
-          }
+          },
+          "requires_explicit_confirm": true
         },
         {
           "id": "waived_months",
@@ -1421,7 +1422,8 @@
               "min_sample_size": 3
             },
             "confidence_threshold": 0.55
-          }
+          },
+          "requires_explicit_confirm": true
         },
         {
           "id": "growth_rate_year_2",
@@ -1699,12 +1701,30 @@
         ]
       },
       {
-        "id": "money",
+        "id": "deal_context",
         "field_ids": [
+          "sending_partner_country",
+          "use_cases",
+          "integration_type",
+          "fx_model"
+        ]
+      },
+      {
+        "id": "pricing",
+        "field_ids": [
+          "pricing_mode",
+          "contract_length_years",
           "default_transaction_fee",
           "default_fx_spread_percent",
           "quoted_setup_price",
           "target_margin_percent"
+        ]
+      },
+      {
+        "id": "targets",
+        "field_ids": [
+          "target_gm_percent",
+          "standard_commitment_fee"
         ]
       }
     ]

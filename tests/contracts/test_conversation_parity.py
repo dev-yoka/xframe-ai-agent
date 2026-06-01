@@ -36,7 +36,9 @@ def test_conversation_phase_ids_are_declared() -> None:
     data = _load()
     phase_ids = [p["id"] for p in data["conversation"]["phases"]]
     assert "identity" in phase_ids
-    assert "money" in phase_ids
+    assert "deal_context" in phase_ids
+    assert "pricing" in phase_ids
+    assert "targets" in phase_ids
 
 
 def test_conversation_field_ids_exist_in_steps() -> None:
@@ -67,9 +69,13 @@ def test_identity_phase_contains_expected_fields() -> None:
         assert fid in identity_fields, f"'{fid}' missing from identity phase"
 
 
-def test_money_phase_contains_expected_fields() -> None:
+def test_money_fields_are_in_conversation() -> None:
+    """Money fields may be spread across pricing + targets phases."""
     data = _load()
-    phases = {p["id"]: p for p in data["conversation"]["phases"]}
-    money_fields = set(phases["money"]["field_ids"])
+    all_conv_fields = {
+        fid
+        for p in data["conversation"]["phases"]
+        for fid in p["field_ids"]
+    }
     for fid in MONEY_FIELD_IDS:
-        assert fid in money_fields, f"'{fid}' missing from money phase"
+        assert fid in all_conv_fields, f"'{fid}' missing from conversation phases"
