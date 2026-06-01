@@ -138,8 +138,6 @@ async def _resolve_corridor_ids(
     ``corridor_services``/``transaction_types``/``payout_currencies``/``payers``
     further narrow it when present. Returns a de-duplicated, ordered list of ids.
     """
-    from xframe_agent.tools.priceframe_read import EmptyInput
-
     selectors: dict[str, set[Any]] = {}
     for field_id, identity_key in _FILTER_FIELD_TO_IDENTITY.items():
         selected = _as_list(vals.get(field_id))
@@ -149,8 +147,13 @@ async def _resolve_corridor_ids(
     if not selectors:
         return []
 
-    out = await _corridor_lookup_tool().execute(EmptyInput(), auth_ctx, priceframe)
-    records = _corridor_records(getattr(out, "data", None))
+    # Request JSON array format explicitly — the default is NDJSON which
+    # causes json.JSONDecodeError ("Extra data") when parsed as a single object.
+    jwt_raw: str = getattr(auth_ctx, "jwt_raw", "")
+    data = await priceframe.get_json(
+        "/api/corridors/active", jwt_raw=jwt_raw, params={"format": "json"}
+    )
+    records = _corridor_records(data)
 
     matched: list[int] = []
     seen: set[int] = set()

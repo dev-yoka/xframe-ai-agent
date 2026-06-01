@@ -60,13 +60,14 @@ async def test_commit_draft_when_corridor_resolution_returns_empty(monkeypatch):
                 data = {"corridors": []}
             return R()
 
+    class FakePF:
+        """Fake PriceFrameClient that returns an empty corridor list."""
+        async def get_json(self, path: str, *, jwt_raw: str = "", **kw: object) -> list[object]:
+            return []  # no corridors → resolution returns []
+
     monkeypatch.setattr(
         "xframe_agent.agent.conversation.recap._create_tool",
         lambda: FakeCreateTool(),
-    )
-    monkeypatch.setattr(
-        "xframe_agent.agent.conversation.recap._corridor_lookup_tool",
-        lambda: FakeLookupTool(),
     )
 
     draft = {
@@ -77,7 +78,7 @@ async def test_commit_draft_when_corridor_resolution_returns_empty(monkeypatch):
             "corridor_countries": ["Nigeria"],  # present but lookup returns no matches
         }
     }
-    result = await commit_draft(CONTRACT, draft, auth_ctx=object(), priceframe=object())
+    result = await commit_draft(CONTRACT, draft, auth_ctx=object(), priceframe=FakePF())
 
     assert result["quote_id"] == "q-empty-corridors"
     assert "create_quotation" in result["applied"]

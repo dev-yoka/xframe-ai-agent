@@ -61,11 +61,23 @@ def _draft(**overrides: Any) -> dict[str, Any]:
     return {"summary": section}
 
 
+class _FakePF:
+    """Fake PriceFrameClient that serves ACTIVE_CORRIDORS as a JSON array."""
+
+    def __init__(self, corridors: list[Any] | None = None, raise_on_get: bool = False) -> None:
+        self._corridors = corridors if corridors is not None else ACTIVE_CORRIDORS
+        self._raise_on_get = raise_on_get
+
+    async def get_json(self, path: str, *, jwt_raw: str, params: Any = None) -> Any:
+        if self._raise_on_get:
+            raise RuntimeError("corridor lookup boom")
+        return self._corridors
+
+
 @pytest.mark.asyncio
 async def test_selecting_countries_resolves_ids_and_bulk_adds(monkeypatch: Any) -> None:
     create_calls: list[Any] = []
     bulk_calls: list[Any] = []
-    lookup_calls: list[Any] = []
 
     class FakeCreate:
         async def execute(self, args: Any, auth: Any, pf: Any) -> _FakeResult:
@@ -77,30 +89,21 @@ async def test_selecting_countries_resolves_ids_and_bulk_adds(monkeypatch: Any) 
             bulk_calls.append(args)
             return _FakeResult({"ok": True})
 
-    class FakeLookup:
-        async def execute(self, args: Any, auth: Any, pf: Any) -> _FakeResult:
-            lookup_calls.append(args)
-            return _FakeResult({"corridors": ACTIVE_CORRIDORS})
-
     monkeypatch.setattr(
         "xframe_agent.agent.conversation.recap._create_tool", lambda: FakeCreate()
     )
     monkeypatch.setattr(
         "xframe_agent.agent.conversation.recap._corridors_tool", lambda: FakeBulk()
     )
-    monkeypatch.setattr(
-        "xframe_agent.agent.conversation.recap._corridor_lookup_tool", lambda: FakeLookup()
-    )
 
     result = await commit_draft(
-        CONTRACT, _draft(), auth_ctx=object(), priceframe=object()
+        CONTRACT, _draft(), auth_ctx=object(), priceframe=_FakePF()
     )
 
     assert result["quote_id"] == 101
     assert result["failed"] == []
     assert "create_quotation" in result["applied"]
     assert "bulk_add_corridors" in result["applied"]
-    assert len(lookup_calls) == 1
     # India in APAC -> corridor ids 11 and 14 (12 is Philippines, 13 is EMEA).
     assert len(bulk_calls) == 1
     resolved_ids = sorted(c.corridor_id for c in bulk_calls[0].corridors)
@@ -124,21 +127,14 @@ async def test_optional_filters_narrow_resolution(monkeypatch: Any) -> None:
             bulk_calls.append(args)
             return _FakeResult({"ok": True})
 
-    class FakeLookup:
-        async def execute(self, args: Any, auth: Any, pf: Any) -> _FakeResult:
-            return _FakeResult(corridors)
-
     monkeypatch.setattr("xframe_agent.agent.conversation.recap._create_tool", lambda: FakeCreate())
     monkeypatch.setattr("xframe_agent.agent.conversation.recap._corridors_tool", lambda: FakeBulk())
-    monkeypatch.setattr(
-        "xframe_agent.agent.conversation.recap._corridor_lookup_tool", lambda: FakeLookup()
-    )
 
     result = await commit_draft(
         CONTRACT,
         _draft(corridor_services=["Push"]),
         auth_ctx=object(),
-        priceframe=object(),
+        priceframe=_FakePF(corridors),
     )
 
     assert result["failed"] == []
@@ -158,18 +154,11 @@ async def test_lookup_failure_records_failed_but_keeps_quote(monkeypatch: Any) -
             bulk_calls.append(args)
             return _FakeResult({"ok": True})
 
-    class FakeLookup:
-        async def execute(self, args: Any, auth: Any, pf: Any) -> _FakeResult:
-            raise RuntimeError("corridor lookup boom")
-
     monkeypatch.setattr("xframe_agent.agent.conversation.recap._create_tool", lambda: FakeCreate())
     monkeypatch.setattr("xframe_agent.agent.conversation.recap._corridors_tool", lambda: FakeBulk())
-    monkeypatch.setattr(
-        "xframe_agent.agent.conversation.recap._corridor_lookup_tool", lambda: FakeLookup()
-    )
 
     result = await commit_draft(
-        CONTRACT, _draft(), auth_ctx=object(), priceframe=object()
+        CONTRACT, _draft(), auth_ctx=object(), priceframe=_FakePF(raise_on_get=True)
     )
 
     assert result["quote_id"] == 103
