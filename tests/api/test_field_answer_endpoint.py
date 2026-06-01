@@ -149,7 +149,22 @@ async def test_field_answer_unknown_field_returns_422(agent_client: AsyncClient)
 
 
 async def test_field_answer_without_draft_returns_409(agent_client: AsyncClient) -> None:
-    _conversation_id, run_id = await _start_wizard(agent_client)
+    # Use a general conversation (not create_pricing_request) so no draft is
+    # auto-seeded by the run — the field-answer endpoint must return 409.
+    conv_resp = await agent_client.post(
+        "/api/v1/agent/conversations",
+        headers={"Idempotency-Key": "fa-no-draft-conv"},
+        json={"title": "General", "kind": "general"},
+    )
+    assert conv_resp.status_code == 201
+    conversation_id = conv_resp.json()["id"]
+    run_resp = await agent_client.post(
+        f"/api/v1/agent/conversations/{conversation_id}/runs",
+        headers={"Idempotency-Key": "fa-no-draft-run"},
+        json={"content": "Hello", "source": "text"},
+    )
+    assert run_resp.status_code == 202
+    run_id = run_resp.json()["run_id"]
 
     response = await agent_client.post(
         f"/api/v1/agent/runs/{run_id}/field-answer",
@@ -195,7 +210,22 @@ async def test_conversation_commit_emits_committed_event(
 
 
 async def test_conversation_commit_without_draft_returns_409(agent_client: AsyncClient) -> None:
-    _conversation_id, run_id = await _start_wizard(agent_client)
+    # Use a general conversation (not create_pricing_request) so no draft is
+    # auto-seeded by the run — the commit endpoint must return 409.
+    conv_resp = await agent_client.post(
+        "/api/v1/agent/conversations",
+        headers={"Idempotency-Key": "commit-no-draft-conv"},
+        json={"title": "General", "kind": "general"},
+    )
+    assert conv_resp.status_code == 201
+    conversation_id = conv_resp.json()["id"]
+    run_resp = await agent_client.post(
+        f"/api/v1/agent/conversations/{conversation_id}/runs",
+        headers={"Idempotency-Key": "commit-no-draft-run"},
+        json={"content": "Hello", "source": "text"},
+    )
+    assert run_resp.status_code == 202
+    run_id = run_resp.json()["run_id"]
 
     response = await agent_client.post(
         f"/api/v1/agent/runs/{run_id}/conversation-commit"

@@ -196,7 +196,12 @@ async def test_workflow_draft_create_get_delete(agent_client: AsyncClient) -> No
     assert deleted_response.status_code == 404
 
 
-async def test_create_pricing_request_emits_workflow_step_event(agent_client: AsyncClient) -> None:
+async def test_create_pricing_request_emits_field_prompt_event(agent_client: AsyncClient) -> None:
+    """Starting the conversational wizard emits v1.field.prompt (not the old wizard events).
+
+    The new conversational flow replaced v1.workflow.step.entered + v1.input.requested
+    with a field-by-field prompt sequence driven by v1.field.prompt.
+    """
     create_response = await agent_client.post(
         "/api/v1/agent/conversations",
         headers={"Idempotency-Key": "workflow-step-conversation"},
@@ -216,13 +221,13 @@ async def test_create_pricing_request_emits_workflow_step_event(agent_client: As
     stream_response = await agent_client.get(f"/api/v1/agent/runs/{run_id}/stream")
     assert stream_response.status_code == 200
     stream_text = stream_response.text
-    assert "event: v1.workflow.step.entered" in stream_text
-    assert '"contract_id":"create_pricing_request"' in stream_text
-    assert '"contract_version":"v1"' in stream_text
-    assert '"step_id":"summary"' in stream_text
-    assert '"step_index":0' in stream_text
-    assert '"total_steps":7' in stream_text
-    assert "event: v1.input.requested" in stream_text
+    # New conversational flow: first field prompt must appear.
+    assert "event: v1.field.prompt" in stream_text
+    # Old wizard-tab events must no longer appear.
+    assert "event: v1.workflow.step.entered" not in stream_text
+    assert "event: v1.input.requested" not in stream_text
+    # Run must complete.
+    assert "event: v1.run.completed" in stream_text
 
 
 async def test_full_workflow_submission_proposes_create_quotation(
