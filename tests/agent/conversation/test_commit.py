@@ -71,33 +71,48 @@ async def test_commit_draft_creates_quote_without_submitting(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_commit_draft_includes_all_collected_fields(monkeypatch):
-    """commit_draft must map conversation answers into the appropriate snapshot fields."""
+    """commit_draft must map conversation answers into the correct snapshot keys."""
     pf = _FakePF()
     monkeypatch.setattr("xframe_agent.agent.conversation.recap._corridors_tool", lambda: _FakeBulkTool())
 
     draft = {"summary": {
         "sending_partner_name": "Acme",
         "opportunity_type": "new",
-        "integration_type": "New API Integration",
-        "fx_model": "Traditional FX",
+        "sending_partner_region": "EMEA",
+        "sending_partner_country": "United Kingdom",
         "default_transaction_fee": 2.5,
         "target_margin_percent": 30.0,
-        "legal_comments": "Standard terms",
+    }, "setup_fee": {
+        "fee_type": "Network Joining Fee",
+        "payment_schedule": "100% on signature",
+        "quoted_setup_price": 5000,
+        "standard_commitment_fee": 6000,
+        "waived_months": 2,
     }}
     result = await commit_draft(CONTRACT, draft, auth_ctx=object(), priceframe=pf)
     assert result["quote_id"] == "q-123"
     sent = pf.post_calls[0]["json"]
-    # Structured fields
+
+    # Top-level structured fields
     assert sent["name"] == "Acme"
-    # Technical snapshot
-    assert sent.get("technicalDetailsSnapshot", {}).get("integrationType") == "New API Integration"
-    assert sent.get("technicalDetailsSnapshot", {}).get("fxModel") == "Traditional FX"
-    # Pricing tool snapshot
-    assert sent.get("pricingToolSnapshot", {}).get("defaultTransactionFee") == 2.5
-    # P&L snapshot
-    assert sent.get("pricingProjectionsSnapshot", {}).get("targetMarginPercent") == 30.0
-    # Quoting snapshot
-    assert sent.get("quotingDetailsSnapshot", {}).get("legalComments") == "Standard terms"
+
+    # quotingDetailsSnapshot: partner region/country use the exact keys read by store.ts
+    qd = sent.get("quotingDetailsSnapshot", {})
+    assert qd.get("sendingPartnerRegion") == "EMEA"
+    assert qd.get("sendingPartnerCountry") == "United Kingdom"
+
+    # pricingToolSnapshot: CRITICAL key name corrections verified from frontend
+    pts = sent.get("pricingToolSnapshot", {})
+    assert pts.get("feeType") == "network"             # 'Network Joining Fee' → 'network'
+    assert pts.get("paymentSchedule") == "100"         # '100% on signature' → '100'
+    assert pts.get("salesRepQuotedPrice") == "5000"    # quoted_setup_price → salesRepQuotedPrice
+    assert pts.get("networkJoiningFee") == 5000.0      # mirrored for feeType='network'
+    assert pts.get("standardCommitmentFee") == 6000.0
+    assert pts.get("waivedMonths") == 2
+
+    # pricingProjectionsSnapshot wraps targets in plData sub-object
+    pps = sent.get("pricingProjectionsSnapshot", {})
+    assert pps.get("plData", {}).get("targetMarginPercent") == 30.0
 
 
 class _FakeBulkTool:

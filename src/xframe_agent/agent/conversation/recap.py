@@ -178,145 +178,171 @@ def _nonempty(value: Any) -> bool:
     return True
 
 
+def _map_fee_type(raw: Any) -> str:
+    """Map the contract enum label to the PriceFRAME internal value.
+
+    PriceFRAME setup fee store uses ``'setup' | 'network'``, not the display
+    labels from the contract enum_options.
+    """
+    label = str(raw or "").lower()
+    if "network" in label:
+        return "network"
+    return "setup"
+
+
+def _map_payment_schedule(raw: Any) -> str:
+    """Map the contract enum label to the PriceFRAME internal value.
+
+    PriceFRAME uses ``'100' | '50' | 'custom'`` not the full display strings.
+    """
+    label = str(raw or "").strip()
+    if label.startswith("50"):
+        return "50"
+    if label.lower() == "custom":
+        return "custom"
+    return "100"  # default / "100% on signature"
+
+
 def _build_quote_payload(vals: dict[str, Any]) -> dict[str, Any]:
     """Map all collected conversation answers to the PriceFRAME quote payload.
 
-    Structured fields are sent as top-level keys; everything that lives in
-    the Summary/Setup/Pricing/P&L/Legal tabs but lacks a native top-level
-    slot is grouped into the appropriate *Snapshot JSON blob so the
-    PriceFRAME wizard can surface it when the user opens the form.
+    Key names and value formats are verified against the actual PriceFRAME
+    frontend store code (quotes.current.store.ts + openQuoteForEdit.ts) to
+    ensure every field hydrates correctly when the user opens the quote.
+
+    Snapshot buckets:
+      quotingDetailsSnapshot   → partner context, contract length, show-FX flags
+      technicalDetailsSnapshot → currency config, pricing strategy, FX pricing
+      pricingToolSnapshot      → setup fee, commitment fee, fee type, pricing rates
+      pricingProjectionsSnapshot → P&L targets (wrapped in plData sub-object)
     """
     fee_currency = vals.get("default_fee_currency") or "USD"
     funding_currencies = vals.get("funding_currencies") or [fee_currency]
     source_currency = vals.get("source_currency") or fee_currency
 
-    # ── Direct structured fields accepted by POST /api/quotes ─────────────
+    # ── Top-level structured fields ────────────────────────────────────────
+    # These match the QuoteCreateSchema and are read directly by the backend.
     payload: dict[str, Any] = {
         "name": vals.get("sending_partner_name") or "",
         "opportunityType": vals.get("opportunity_type") or "New partner",
-        # Corridor geography
         "regions": vals.get("corridor_regions") or [],
         "countries": vals.get("corridor_countries") or [],
         "services": vals.get("corridor_services") or [],
         "transactionTypes": vals.get("transaction_types") or [],
         "payoutCurrencies": vals.get("payout_currencies") or [],
         "payers": vals.get("payers") or [],
-        # Currency config
         "fundingCurrency": fee_currency,
         "fundingCurrencies": funding_currencies
         if isinstance(funding_currencies, list)
         else [funding_currencies],
         "sourceCurrency": source_currency,
         "defaultFeeCurrency": fee_currency,
-        # Contract terms
         "useCases": vals.get("use_cases") or [],
-        "selectedFxPricing": vals.get("fx_pricing"),
+        # selectedFxPricing / selectedPricingStrategy also accepted top-level
+        "selectedFxPricing": vals.get("fx_pricing") or "FX Spread",
+        "selectedPricingStrategy": "Corridor Pricing",
     }
     if vals.get("contract_length_years") is not None:
         payload["contractLength"] = int(vals["contract_length_years"])
     if vals.get("waived_months") is not None:
         payload["waivedMonths"] = int(vals["waived_months"])
 
-    # ── quotingDetailsSnapshot — partner context, quoting document flags ───
-    quoting: dict[str, Any] = {}
-    for src_key, dest_key in [
-        ("sending_partner_region", "sendingPartnerRegion"),
-        ("sending_partner_country", "sendingPartnerCountry"),
-        ("opportunity_owner", "opportunityOwner"),
-        ("customer_facing_currency", "customerFacingCurrency"),
-        ("quote_summary_notes", "quoteSummaryNotes"),
-        ("include_setup_fees", "includeSetupFees"),
-        ("include_fx_model", "includeFxModel"),
-        ("include_pnl_projection", "includePnlProjection"),
-        ("include_sd_quotation", "includeSdQuotation"),
-        ("include_fee_annex", "includeFeeAnnex"),
-        ("include_fx_source", "includeFxSource"),
-        ("include_fx_spread", "includeFxSpread"),
-        ("legal_comments", "legalComments"),
-        ("special_terms", "specialTerms"),
-        ("show_fx_source_in_contract", "showFxSourceInContract"),
-        ("show_fx_spread_in_contract", "showFxSpreadInContract"),
-        ("quote_valid_until", "quoteValidUntil"),
-        ("contract_language", "contractLanguage"),
-    ]:
-        v = vals.get(src_key)
-        if _nonempty(v):
-            quoting[dest_key] = v
-    if quoting:
-        payload["quotingDetailsSnapshot"] = quoting
+    # ── quotingDetailsSnapshot ─────────────────────────────────────────────
+    # Read by openQuoteForEdit via `qd.*` keys. Verified from store.ts:891-902.
+    quoting: dict[str, Any] = {
+        "sendingPartnerName": vals.get("sending_partner_name") or "",
+        "sendingPartnerRegion": vals.get("sending_partner_region"),
+        "sendingPartnerCountry": vals.get("sending_partner_country"),
+        "opportunityOwner": vals.get("opportunity_owner"),
+        "prCode": vals.get("pr_code"),
+        # show-FX flags read as qd.showFXSource / qd.showFXSpread
+        "showFXSource": vals.get("show_fx_source_in_contract"),
+        "showFXSpread": vals.get("show_fx_spread_in_contract"),
+        "contractLength": int(vals["contract_length_years"])
+        if vals.get("contract_length_years") is not None
+        else None,
+        "waivedMonths": int(vals["waived_months"])
+        if vals.get("waived_months") is not None
+        else None,
+        # useCases also stored in qd for hydration fallback
+        "useCases": vals.get("use_cases") or [],
+    }
+    payload["quotingDetailsSnapshot"] = {k: v for k, v in quoting.items() if _nonempty(v)}
 
-    # ── technicalDetailsSnapshot — integration model choices ───────────────
-    tech: dict[str, Any] = {}
-    for src_key, dest_key in [
-        ("integration_type", "integrationType"),
-        ("fx_model", "fxModel"),
-        ("fx_pricing", "fxPricing"),
-        ("pricing_strategy", "pricingStrategy"),
-        ("quantity_funding_currencies", "quantityFundingCurrencies"),
-        ("quantity_source_currencies", "quantitySourceCurrencies"),
-    ]:
-        v = vals.get(src_key)
-        if _nonempty(v):
-            tech[dest_key] = v
-    if tech:
-        payload["technicalDetailsSnapshot"] = tech
+    # ── technicalDetailsSnapshot ───────────────────────────────────────────
+    # Read by store.ts:408-423 via `td.*` keys.
+    # NOTE: integration_type and fx_model are NOT in technicalDetailsSnapshot —
+    # they are stored in the TechnicalDetails form component state separately.
+    # The technicalDetailsSnapshot stores currency/FX config.
+    tech: dict[str, Any] = {
+        "selectedPricingStrategy": "Corridor Pricing",
+        "selectedFxPricing": vals.get("fx_pricing") or "FX Spread",
+        "fundingCurrency": fee_currency,
+        "fundingCurrencies": funding_currencies
+        if isinstance(funding_currencies, list)
+        else [funding_currencies],
+        "sourceCurrency": source_currency,
+        "defaultFeeCurrency": fee_currency,
+        "feeDebitedFrom": fee_currency,
+    }
+    payload["technicalDetailsSnapshot"] = tech
 
-    # ── pricingToolSnapshot — fee amounts and pricing configuration ─────────
-    pricing_tool: dict[str, Any] = {}
-    for src_key, dest_key in [
-        ("fee_type", "feeType"),
-        ("payment_schedule", "paymentSchedule"),
-        ("quoted_setup_price", "quotedSetupPrice"),
-        ("standard_commitment_fee", "standardCommitmentFee"),
-        ("waived_months", "waivedMonths"),
-        ("emergency_funding_fee", "emergencyFundingFee"),
-        ("service_request_fee_reversal", "serviceRequestFeeReversal"),
-        ("service_request_fee_proof", "serviceRequestFeeProof"),
-        ("treasury_management_fee", "treasuryManagementFee"),
-        ("treasury_management_currencies", "treasuryManagementCurrencies"),
-        ("business_hub_platform_fee", "businessHubPlatformFee"),
-        ("post_funding_line_penalty_percent", "postFundingLinePenaltyPercent"),
-        ("corridor_no_usage_fee", "corridorNoUsageFee"),
-        ("white_glove_service_fee", "whiteGloveServiceFee"),
-        ("stablecoin_prefunding_setup_fee", "stablecoinPrefundingSetupFee"),
-        ("digital_asset_icp_setup_fee", "digitalAssetIcpSetupFee"),
-        ("bulk_currency_conversion_fee", "bulkCurrencyConversionFee"),
-        ("pricing_mode", "pricingMode"),
-        ("corridor_pricing_scope", "corridorPricingScope"),
-        ("applied_rate_strategy", "appliedRateStrategy"),
-        ("applied_fx_spread_strategy", "appliedFxSpreadStrategy"),
-        ("default_transaction_fee", "defaultTransactionFee"),
-        ("default_fx_spread_percent", "defaultFxSpreadPercent"),
-        ("volume_assumption_usd", "volumeAssumptionUsd"),
-        ("tier_1_threshold", "tier1Threshold"),
-        ("tier_1_fee", "tier1Fee"),
-        ("tier_2_threshold", "tier2Threshold"),
-        ("tier_2_fee", "tier2Fee"),
-        ("tier_3_threshold", "tier3Threshold"),
-        ("tier_3_fee", "tier3Fee"),
-    ]:
-        v = vals.get(src_key)
-        if _nonempty(v):
-            pricing_tool[dest_key] = v
-    if pricing_tool:
-        payload["pricingToolSnapshot"] = pricing_tool
+    # ── pricingToolSnapshot ────────────────────────────────────────────────
+    # Read by openQuoteForEdit (line 14-52) and store.ts:433-468 via `pts.*`.
+    # CRITICAL: feeType uses 'setup'|'network', paymentSchedule uses '100'|'50'|'custom',
+    # and quoted_setup_price is salesRepQuotedPrice. Verified from useUIStateStore.ts.
+    pricing_tool: dict[str, Any] = {
+        "feeType": _map_fee_type(vals.get("fee_type")),
+        "paymentSchedule": _map_payment_schedule(vals.get("payment_schedule")),
+        # salesRepQuotedPrice = the agent-collected "Quoting Price" (quoted_setup_price)
+        "salesRepQuotedPrice": str(vals["quoted_setup_price"])
+        if vals.get("quoted_setup_price") is not None
+        else "",
+        # networkJoiningFee — same value as salesRepQuotedPrice when feeType='network'
+        "networkJoiningFee": float(vals["quoted_setup_price"])
+        if vals.get("quoted_setup_price") is not None
+        else 0,
+        "standardCommitmentFee": float(vals["standard_commitment_fee"])
+        if vals.get("standard_commitment_fee") is not None
+        else 0,
+        "waivedMonths": int(vals["waived_months"])
+        if vals.get("waived_months") is not None
+        else 0,
+        "mcfType": "standard",
+        "commitmentFeeDiscount": 0,
+    }
+    # Additional optional fees stored as otherFees array (PriceFRAME's format)
+    other_fees: list[dict[str, Any]] = []
+    if vals.get("emergency_funding_fee") is not None:
+        other_fees.append({
+            "concept": "Emergency Funding Fee",
+            "fee": float(vals["emergency_funding_fee"]),
+            "type": "emergency_funding",
+        })
+    if vals.get("service_request_fee_reversal") is not None:
+        other_fees.append({
+            "concept": "Service Request Fee (Reversal)",
+            "fee": float(vals["service_request_fee_reversal"]),
+            "type": "service_request_reversal",
+        })
+    if other_fees:
+        pricing_tool["otherFees"] = other_fees
+    payload["pricingToolSnapshot"] = pricing_tool
 
-    # ── pricingProjectionsSnapshot — P&L targets ───────────────────────────
-    pnl: dict[str, Any] = {}
-    for src_key, dest_key in [
-        ("pl_discount_type", "plDiscountType"),
-        ("target_margin_percent", "targetMarginPercent"),
-        ("target_gm_percent", "targetGmPercent"),
-        ("growth_rate_year_2", "growthRateYear2"),
-        ("growth_rate_year_3", "growthRateYear3"),
-    ]:
-        v = vals.get(src_key)
-        if _nonempty(v):
-            pnl[dest_key] = v
-    if pnl:
-        payload["pricingProjectionsSnapshot"] = pnl
+    # ── pricingProjectionsSnapshot ─────────────────────────────────────────
+    # Read by store.ts:528 via ui.setPLTabState(snapshot). The plTab state
+    # shape wraps targets inside `plData`. Verified from useUIStateStore.ts.
+    pnl_data: dict[str, Any] = {}
+    if vals.get("target_margin_percent") is not None:
+        pnl_data["targetMarginPercent"] = float(vals["target_margin_percent"])
+    if vals.get("target_gm_percent") is not None:
+        pnl_data["targetGmPercent"] = float(vals["target_gm_percent"])
+    if vals.get("pl_discount_type") is not None:
+        pnl_data["discountType"] = vals["pl_discount_type"]
+    if pnl_data:
+        payload["pricingProjectionsSnapshot"] = {"plData": pnl_data}
 
-    # Strip top-level None / empty-list values (snapshots already filtered above)
+    # Strip top-level None / empty-list values (snapshots already filtered)
     return {k: v for k, v in payload.items() if _nonempty(v)}
 
 
@@ -343,7 +369,8 @@ async def commit_draft(
         "/api/quotes", jwt_raw=jwt_raw, json=quote_payload
     )
     # PriceFRAME returns { success: true, data: { id: <int>, ... } }.
-    nested = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+    _raw_data = raw.get("data")
+    nested: dict[str, Any] = _raw_data if isinstance(_raw_data, dict) else {}
     quote_id = nested.get("id") or raw.get("quote_id") or raw.get("id")
     applied.append("create_quotation")
 
