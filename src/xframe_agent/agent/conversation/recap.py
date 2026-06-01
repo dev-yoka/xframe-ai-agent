@@ -194,8 +194,11 @@ async def commit_draft(
         countries=vals.get("corridor_countries") or [],
     )
     out = await _create_tool().execute(create_args, auth_ctx, priceframe)
-    data: dict[str, Any] = out.data if getattr(out, "data", None) is not None else {}
-    quote_id = data.get("quote_id") or data.get("id")
+    raw: dict[str, Any] = out.data if getattr(out, "data", None) is not None else {}
+    # PriceFRAME returns { success: true, data: { id: <int>, ... } }.
+    # Extract the nested quote object first, fall back to top-level keys.
+    nested = raw.get("data") if isinstance(raw.get("data"), dict) else {}
+    quote_id = nested.get("id") or raw.get("quote_id") or raw.get("id")
     applied.append("create_quotation")
 
     # Corridor ids may be supplied directly (list[int]) or resolved from the
