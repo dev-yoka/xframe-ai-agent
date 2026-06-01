@@ -137,9 +137,9 @@
           "required": true,
           "options_source": {
             "type": "priceframe_api",
-            "endpoint": "/api/v1/corridors/active/filters",
-            "value_path": "geographicalRegions",
-            "label_path": "geographicalRegions",
+            "endpoint": "/api/corridors/active/filters",
+            "value_path": "regions",
+            "label_path": "regions",
             "cache_ttl_seconds": 300
           },
           "ui": {
@@ -153,7 +153,7 @@
           "required": true,
           "options_source": {
             "type": "priceframe_api",
-            "endpoint": "/api/v1/corridors/active/filters",
+            "endpoint": "/api/corridors/active/filters",
             "value_path": "countries",
             "label_path": "countries",
             "depends_on": [
@@ -575,9 +575,9 @@
           "required": true,
           "options_source": {
             "type": "priceframe_api",
-            "endpoint": "/api/v1/corridors/active/filters",
-            "value_path": "geographicalRegions",
-            "label_path": "geographicalRegions",
+            "endpoint": "/api/corridors/active/filters",
+            "value_path": "regions",
+            "label_path": "regions",
             "cache_ttl_seconds": 300
           },
           "ui": {
@@ -591,7 +591,7 @@
           "required": true,
           "options_source": {
             "type": "priceframe_api",
-            "endpoint": "/api/v1/corridors/active/filters",
+            "endpoint": "/api/corridors/active/filters",
             "value_path": "countries",
             "label_path": "countries",
             "depends_on": [
@@ -610,7 +610,7 @@
           "required": false,
           "options_source": {
             "type": "priceframe_api",
-            "endpoint": "/api/v1/corridors/active/filters",
+            "endpoint": "/api/corridors/active/filters",
             "value_path": "services",
             "label_path": "services",
             "depends_on": [
@@ -629,7 +629,7 @@
           "required": false,
           "options_source": {
             "type": "priceframe_api",
-            "endpoint": "/api/v1/corridors/active/filters",
+            "endpoint": "/api/corridors/active/filters",
             "value_path": "transactionTypes",
             "label_path": "transactionTypes",
             "cache_ttl_seconds": 300
@@ -645,7 +645,7 @@
           "required": false,
           "options_source": {
             "type": "priceframe_api",
-            "endpoint": "/api/v1/corridors/active/filters",
+            "endpoint": "/api/corridors/active/filters",
             "value_path": "payoutCurrencies",
             "label_path": "payoutCurrencies",
             "depends_on": [
@@ -664,7 +664,7 @@
           "required": false,
           "options_source": {
             "type": "priceframe_api",
-            "endpoint": "/api/v1/corridors/active/filters",
+            "endpoint": "/api/corridors/active/filters",
             "value_path": "payers",
             "label_path": "payers",
             "depends_on": [
