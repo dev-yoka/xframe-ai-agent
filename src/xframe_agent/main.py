@@ -57,7 +57,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         # Last-Event-ID is sent by browsers on SSE reconnects — must be explicitly allowed.
-        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID", "Last-Event-ID"],
+        allow_headers=[
+            "Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID", "Last-Event-ID",
+        ],
     )
 
     @app.exception_handler(RequestValidationError)
