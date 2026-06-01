@@ -832,7 +832,8 @@
               "min_sample_size": 3
             },
             "confidence_threshold": 0.55
-          }
+          },
+          "requires_explicit_confirm": true
         },
         {
           "id": "service_request_fee_proof",
@@ -866,7 +867,8 @@
               "min_sample_size": 3
             },
             "confidence_threshold": 0.55
-          }
+          },
+          "requires_explicit_confirm": true
         },
         {
           "id": "treasury_management_fee",
@@ -1701,8 +1703,9 @@
         ]
       },
       {
-        "id": "deal_context",
+        "id": "partner_detail",
         "field_ids": [
+          "sending_partner_region",
           "sending_partner_country",
           "use_cases",
           "integration_type",
@@ -1710,21 +1713,71 @@
         ]
       },
       {
-        "id": "pricing",
+        "id": "pricing_structure",
         "field_ids": [
           "pricing_mode",
-          "contract_length_years",
-          "default_transaction_fee",
-          "default_fx_spread_percent",
-          "quoted_setup_price",
-          "target_margin_percent"
+          "corridor_pricing_scope",
+          "fx_pricing",
+          "funding_currencies"
         ]
       },
       {
-        "id": "targets",
+        "id": "currencies",
         "field_ids": [
-          "target_gm_percent",
+          "source_currency",
+          "default_fee_currency"
+        ]
+      },
+      {
+        "id": "core_pricing",
+        "field_ids": [
+          "default_transaction_fee",
+          "default_fx_spread_percent"
+        ]
+      },
+      {
+        "id": "setup_fee",
+        "field_ids": [
+          "fee_type",
+          "payment_schedule",
+          "quoted_setup_price",
           "standard_commitment_fee"
+        ]
+      },
+      {
+        "id": "additional_fees",
+        "field_ids": [
+          "waived_months",
+          "emergency_funding_fee",
+          "service_request_fee_reversal"
+        ]
+      },
+      {
+        "id": "pnl",
+        "field_ids": [
+          "contract_length_years",
+          "pl_discount_type",
+          "target_margin_percent",
+          "target_gm_percent"
+        ]
+      },
+      {
+        "id": "quoting_summary",
+        "field_ids": [
+          "customer_facing_currency",
+          "quote_summary_notes",
+          "include_setup_fees",
+          "include_fx_model",
+          "include_pnl_projection"
+        ]
+      },
+      {
+        "id": "legal",
+        "field_ids": [
+          "legal_comments",
+          "include_fee_annex",
+          "include_sd_quotation",
+          "special_terms"
         ]
       }
     ]

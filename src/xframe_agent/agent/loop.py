@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xframe_agent.agent.budget import BudgetExceededError, LoopBudget
-from xframe_agent.agent.conversation.cursor import get_cursor
+from xframe_agent.agent.conversation.cursor import Cursor, get_cursor
 from xframe_agent.agent.conversation.runner import emit_next_prompt
 from xframe_agent.agent.conversation.start import init_conversation_draft_payload
 from xframe_agent.agent.events import (
@@ -164,8 +164,24 @@ class AgentLoop:
                 payload={"step": budget.steps, "kind": "model"},
             )
 
-            # Seed the workflow draft if absent
+            # Seed the workflow draft if absent; detect resume from saved draft
             draft = await session.get(AgentWorkflowDraft, run.conversation_id)
+            if draft is not None:
+                # Existing draft → user is resuming a saved conversation.
+                # Update the greeting already emitted to reflect resume context.
+
+                current_cursor = get_cursor(draft.payload or {})
+                if current_cursor != Cursor(0, 0):
+                    resume_greeting = (
+                        "Welcome back! Picking up your pricing request where you left off."
+                    )
+                    msg.content = resume_greeting
+                    await append_run_event(
+                        session,
+                        run_id=run.id,
+                        event_type="v1.message.delta",
+                        payload={"message_id": msg.id, "delta": resume_greeting},
+                    )
             if draft is None:
                 contract = load_contract(
                     CREATE_PRICING_REQUEST_WORKFLOW,

@@ -53,12 +53,21 @@ async def _resolve_options(
                         seen.add(c)
             raw = flat
 
-        # If corridor_countries and depends_on corridor_regions, filter by selection
-        if "corridor_regions" in depends_on:
+        # Filter countries by a previously-selected region if the field declares
+        # depends_on.  Two cases: corridor_countries filtered by corridor_regions,
+        # and sending_partner_country filtered by sending_partner_region.
+        region_dep = next(
+            (dep for dep in depends_on if dep in ("corridor_regions", "sending_partner_region")),
+            None,
+        )
+        if region_dep is not None:
             selected_regions: list[str] = []
             summary = draft_payload.get("summary") if isinstance(draft_payload, dict) else {}
             if isinstance(summary, dict):
-                selected_regions = summary.get("corridor_regions") or []
+                selected_regions = summary.get(region_dep) or []
+                # sending_partner_region is a scalar string, not a list
+                if isinstance(selected_regions, str):
+                    selected_regions = [selected_regions]
             if selected_regions:
                 by_region: dict[str, list[str]] = data.get("countriesByRegion") or {}
                 filtered: list[str] = []

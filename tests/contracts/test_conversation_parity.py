@@ -35,10 +35,12 @@ def test_conversation_block_is_present() -> None:
 def test_conversation_phase_ids_are_declared() -> None:
     data = _load()
     phase_ids = [p["id"] for p in data["conversation"]["phases"]]
-    assert "identity" in phase_ids
-    assert "deal_context" in phase_ids
-    assert "pricing" in phase_ids
-    assert "targets" in phase_ids
+    for expected in (
+        "identity", "partner_detail", "pricing_structure",
+        "currencies", "core_pricing", "setup_fee",
+        "additional_fees", "pnl", "quoting_summary", "legal",
+    ):
+        assert expected in phase_ids, f"Phase '{expected}' missing"
 
 
 def test_conversation_field_ids_exist_in_steps() -> None:
