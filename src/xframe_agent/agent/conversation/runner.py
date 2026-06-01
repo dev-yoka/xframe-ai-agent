@@ -1,6 +1,7 @@
 """Glue: compute the next prompt, attach a suggestion for money fields, emit the event."""
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,6 +15,77 @@ from xframe_agent.agent.events import append_run_event
 class EmitResult:
     kind: str  # "prompt" | "recap" | "done"
     field_id: str | None = None
+
+
+async def _resolve_options(
+    prompt: FieldPrompt,
+    draft_payload: dict[str, Any],
+    auth_ctx: Any,
+    priceframe: Any,
+) -> list[dict[str, str]] | None:
+    """Best-effort: fetch options for API-sourced fields. Never raises."""
+    if not prompt.options_source or priceframe is None or auth_ctx is None:
+        return None
+    if prompt.options:  # already have static options
+        return None
+    try:
+        options_source = prompt.options_source
+        endpoint = options_source.get("endpoint", "")
+        value_path = options_source.get("value_path", "")
+        depends_on = options_source.get("depends_on") or []
+
+        # Fetch from PriceFRAME using the user's JWT
+        data = await priceframe.get_json(endpoint, jwt_raw=auth_ctx.jwt_raw)
+        if not isinstance(data, dict):
+            return None
+
+        # Extract the raw list at value_path.
+        # PriceFRAME may return either "regions" or "geographicalRegions" —
+        # match the client's agentApi fallback logic (both keys checked).
+        raw = data.get(value_path) or []
+        if not raw and value_path == "geographicalRegions":
+            raw = data.get("regions") or []
+        if not raw and value_path == "countries":
+            # Flatten countriesByRegion as a fallback when "countries" key absent
+            by_region_flat: dict[str, list[str]] = data.get("countriesByRegion") or {}
+            seen: set[str] = set()
+            for country_list in by_region_flat.values():
+                for c in country_list:
+                    if c not in seen:
+                        raw.append(c)
+                        seen.add(c)
+
+        # If corridor_countries and depends_on corridor_regions, filter by selection
+        if "corridor_regions" in depends_on:
+            selected_regions: list[str] = []
+            summary = draft_payload.get("summary") if isinstance(draft_payload, dict) else {}
+            if isinstance(summary, dict):
+                selected_regions = summary.get("corridor_regions") or []
+            if selected_regions:
+                by_region: dict[str, list[str]] = data.get("countriesByRegion") or {}
+                filtered: list[str] = []
+                for region in selected_regions:
+                    filtered.extend(by_region.get(region) or [])
+                if filtered:
+                    raw = list(dict.fromkeys(filtered))  # dedupe preserving order
+
+        if not raw:
+            return None
+
+        # Normalize to [{value, label}]
+        if isinstance(raw[0], str):
+            return [{"value": item, "label": item} for item in raw]
+        if isinstance(raw[0], dict):
+            return [
+                {
+                    "value": item.get("value", item.get("id", str(item))),
+                    "label": item.get("label", item.get("name", str(item))),
+                }
+                for item in raw
+            ]
+        return None
+    except Exception:  # noqa: BLE001 — options resolution is best-effort, never blocks
+        return None
 
 
 async def _suggestion_for(
@@ -73,6 +145,9 @@ async def emit_next_prompt(
 ) -> EmitResult:
     step = next_step(contract, draft_payload, cursor)
     if isinstance(step, FieldPrompt):
+        resolved_options = await _resolve_options(step, draft_payload, auth_ctx, priceframe)
+        if resolved_options:
+            step = dataclasses.replace(step, options=resolved_options)
         suggestion = await _suggestion_for(step, contract, draft_payload, auth_ctx, priceframe)
         await append_run_event(
             session,
