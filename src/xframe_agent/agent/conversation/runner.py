@@ -39,8 +39,21 @@ async def _resolve_options(
         if not isinstance(data, dict):
             return None
 
-        # Extract the raw list at value_path
+        # Extract the raw list at value_path.
+        # PriceFRAME may return either "regions" or "geographicalRegions" —
+        # match the client's agentApi fallback logic (both keys checked).
         raw = data.get(value_path) or []
+        if not raw and value_path == "geographicalRegions":
+            raw = data.get("regions") or []
+        if not raw and value_path == "countries":
+            # Flatten countriesByRegion as a fallback when "countries" key absent
+            by_region_flat: dict[str, list[str]] = data.get("countriesByRegion") or {}
+            seen: set[str] = set()
+            for country_list in by_region_flat.values():
+                for c in country_list:
+                    if c not in seen:
+                        raw.append(c)
+                        seen.add(c)
 
         # If corridor_countries and depends_on corridor_regions, filter by selection
         if "corridor_regions" in depends_on:
