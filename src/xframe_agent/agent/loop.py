@@ -20,6 +20,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xframe_agent.agent.budget import BudgetExceededError, LoopBudget
+from xframe_agent.agent.conversation.cursor import get_cursor
+from xframe_agent.agent.conversation.runner import emit_next_prompt
+from xframe_agent.agent.conversation.start import init_conversation_draft_payload
 from xframe_agent.agent.events import (
     EVENT_WORKFLOW_STEP_PROPOSED,
     append_run_event,
@@ -28,8 +31,6 @@ from xframe_agent.agent.guided_workflows import (
     CREATE_PRICING_REQUEST_CONTRACT_VERSION,
     CREATE_PRICING_REQUEST_INITIAL_STEP,
     CREATE_PRICING_REQUEST_WORKFLOW,
-    create_pricing_request_input_payload,
-    create_pricing_request_step_entered_payload,
     is_generic_create_pricing_request,
     parse_create_pricing_request_submission,
 )
@@ -50,6 +51,7 @@ from xframe_agent.models import (
     AgentRunStep,
     AgentToolCall,
     AgentUserMemory,
+    AgentWorkflowDraft,
 )
 from xframe_agent.models.agent import utc_now
 from xframe_agent.observability.metrics import observe_run_latency, observe_step_count
@@ -130,13 +132,92 @@ class AgentLoop:
         is_create_pricing_wizard = (
             is_create_pricing_conversation and is_generic_create_pricing_request(redacted.text)
         )
+
+        if is_create_pricing_wizard:
+            # New conversational flow: seed the draft and emit the first field prompt.
+            # Greeting message
+            greeting = (
+                "Let's set up your pricing request. I'll ask you a few quick questions."
+            )
+            msg = AgentMessage(
+                conversation_id=run.conversation_id,
+                user_id=context.user_id,
+                role="assistant",
+                content=greeting,
+                source="agent",
+                run_id=run.id,
+            )
+            session.add(msg)
+            await session.flush()
+            run.output_message_id = msg.id
+            await append_run_event(
+                session,
+                run_id=run.id,
+                event_type="v1.message.delta",
+                payload={"message_id": msg.id, "delta": greeting},
+            )
+            await self._close_step(step_record, status="completed")
+            await append_run_event(
+                session,
+                run_id=run.id,
+                event_type="v1.step.completed",
+                payload={"step": budget.steps, "kind": "model"},
+            )
+
+            # Seed the workflow draft if absent
+            draft = await session.get(AgentWorkflowDraft, run.conversation_id)
+            if draft is None:
+                contract = load_contract(
+                    CREATE_PRICING_REQUEST_WORKFLOW,
+                    CREATE_PRICING_REQUEST_CONTRACT_VERSION,
+                )
+                draft = AgentWorkflowDraft(
+                    conversation_id=run.conversation_id,
+                    contract_id=CREATE_PRICING_REQUEST_WORKFLOW,
+                    contract_version=CREATE_PRICING_REQUEST_CONTRACT_VERSION,
+                    current_step_id=CREATE_PRICING_REQUEST_INITIAL_STEP,
+                    payload=init_conversation_draft_payload(),
+                    step_status={},
+                )
+                session.add(draft)
+                await session.flush()
+            else:
+                contract = load_contract(
+                    draft.contract_id,
+                    draft.contract_version,
+                )
+
+            # Emit the first (or resumed) field prompt
+            try:
+                async with PriceFrameClient.from_settings(self._settings) as priceframe:
+                    await emit_next_prompt(
+                        session,
+                        run_id=run.id,
+                        contract=contract,
+                        draft_payload=draft.payload or {},
+                        cursor=get_cursor(draft.payload or {}),
+                        auth_ctx=context,
+                        priceframe=priceframe,
+                    )
+            except Exception:  # noqa: BLE001, S110 — best-effort; run still completes
+                pass
+
+            run.status = "completed"
+            run.completed_at = utc_now()
+            run.updated_at = utc_now()
+            await append_run_event(
+                session,
+                run_id=run.id,
+                event_type="v1.run.completed",
+                payload={"workflow": CREATE_PRICING_REQUEST_WORKFLOW},
+            )
+            observe_step_count(budget.steps)
+            observe_run_latency(model="conversation-v1", seconds=perf_counter() - started)
+            await session.commit()
+            return run
+
         proposal = self._build_tool_proposal(redacted.text, context)
-        assistant_text = (
-            "Let's set up the pricing request. I filled the basics so you can adjust "
-            "only what matters."
-            if is_create_pricing_wizard
-            else self._deterministic_response(redacted.text, context, proposal)
-        )
+        assistant_text = self._deterministic_response(redacted.text, context, proposal)
         assistant_message = AgentMessage(
             conversation_id=run.conversation_id,
             user_id=context.user_id,
@@ -167,39 +248,6 @@ class AgentLoop:
             content=redacted.text,
             context=context,
         )
-
-        if is_create_pricing_wizard:
-            run.output_message_id = assistant_message.id
-            run.status = "completed"
-            run.completed_at = utc_now()
-            run.updated_at = utc_now()
-            await append_run_event(
-                session,
-                run_id=run.id,
-                event_type="v1.workflow.step.entered",
-                payload=create_pricing_request_step_entered_payload(),
-            )
-            await self._fanout_initial_step_suggestions(
-                session,
-                run_id=run.id,
-                context=context,
-            )
-            await append_run_event(
-                session,
-                run_id=run.id,
-                event_type="v1.input.requested",
-                payload=create_pricing_request_input_payload(),
-            )
-            await append_run_event(
-                session,
-                run_id=run.id,
-                event_type="v1.run.completed",
-                payload={"workflow": CREATE_PRICING_REQUEST_WORKFLOW},
-            )
-            observe_step_count(budget.steps)
-            observe_run_latency(model="deterministic-phase-f", seconds=perf_counter() - started)
-            await session.commit()
-            return run
 
         if proposal is not None:
             return await self._propose_tool_call(

@@ -219,10 +219,14 @@ async def test_create_pricing_request_flow_pauses_on_create_quotation(
     assert tool_calls[0].status == "proposed"
 
 
-async def test_generic_create_pricing_request_emits_input_controls_without_provider(
+async def test_generic_create_pricing_request_emits_field_prompt_without_provider(
     db: tuple[Settings, AsyncEngine, Any, str, str],
 ) -> None:
-    """A generic create request should produce controls instead of asking for typed fields."""
+    """A generic create request starts the conversational flow and emits v1.field.prompt.
+
+    The new conversational flow replaces the old v1.input.requested (wizard-tab) event
+    with a field-by-field v1.field.prompt sequence. The model provider must NOT be called.
+    """
     settings, _engine, factory, _conv_id, run_id = db
 
     provider = FakeProvider(script=[StreamEvent(kind="text_delta", payload={"delta": "unused"})])
@@ -252,6 +256,7 @@ async def test_generic_create_pricing_request_emits_input_controls_without_provi
         )
 
     assert result.status == "completed"
+    # Provider must NOT be called — this is the deterministic conversational path.
     assert provider.calls == []
 
     async with factory() as session:
@@ -261,11 +266,14 @@ async def test_generic_create_pricing_request_emits_input_controls_without_provi
             .all()
         )
 
-    input_events = [event for event in events if event.event_type == "v1.input.requested"]
-    assert len(input_events) == 1
-    assert input_events[0].payload["workflow"] == "create_pricing_request"
-    assert input_events[0].payload["defaults"]["opportunity_type"] == "New partner"
-    assert input_events[0].payload["defaults"]["currency"] == "USD"
+    event_types = [event.event_type for event in events]
+    # New conversational flow: first field prompt must appear.
+    assert "v1.field.prompt" in event_types
+    # Old wizard-tab events must no longer appear.
+    assert "v1.input.requested" not in event_types
+    assert "v1.workflow.step.entered" not in event_types
+    # Run must complete.
+    assert "v1.run.completed" in event_types
 
 
 async def test_create_pricing_request_submission_creates_tool_proposal_without_provider(

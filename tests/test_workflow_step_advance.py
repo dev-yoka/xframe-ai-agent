@@ -632,17 +632,17 @@ async def test_final_step_approval_does_not_emit_step_entered(
             await app.state.engine.dispose()
 
     assert "event: v1.workflow.step.advance_approved" in stream_text
-    # The initial wizard mount emits one step.entered for ``summary`` — that
-    # is expected. The fix under test must NOT emit a second step.entered
-    # after approving the final step (``approvals``), because there is no
-    # successor tab.
+    # The new conversational flow replaced the old v1.workflow.step.entered
+    # event on first run — the initial run now emits v1.field.prompt instead.
+    # After approving the final step (``approvals``) no step.entered must
+    # appear either, because there is no successor tab.
     advance_approved_index = stream_text.find("event: v1.workflow.step.advance_approved")
     assert advance_approved_index > 0
     tail_after_approval = stream_text[advance_approved_index:]
     assert "event: v1.workflow.step.entered" not in tail_after_approval
-    # And only the initial summary step.entered should appear in the stream.
-    assert stream_text.count("event: v1.workflow.step.entered") == 1
-    assert '"step_id":"summary"' in stream_text
+    # The initial run no longer emits step.entered at all; the whole stream
+    # must be free of it (the old count==1 assertion is retired).
+    assert stream_text.count("event: v1.workflow.step.entered") == 0
 
 
 # ---------------------------------------------------------------------------
@@ -653,12 +653,11 @@ async def test_final_step_approval_does_not_emit_step_entered(
 async def test_step_entered_emits_proposal_for_per_tab_step(
     agent_client: AsyncClient,
 ) -> None:
-    """Entering the wizard fires step.entered for ``summary`` (a per_tab step)
-    plus a v1.workflow.step.proposed event covering the summary essentials.
+    """Starting the wizard emits v1.field.prompt for the first conversational field.
 
-    The summary step's essentials include enums and a string that can be
-    defaulted from the contract, so a proposal is always producible even
-    without a draft or historical signal.
+    The new conversational flow replaces the old v1.workflow.step.entered +
+    v1.workflow.step.proposed pattern: on first run the agent now asks the user
+    one question at a time via v1.field.prompt events.
     """
 
     _conversation_id, run_id = await _start_wizard(agent_client)
@@ -667,13 +666,11 @@ async def test_step_entered_emits_proposal_for_per_tab_step(
     assert stream_response.status_code == 200
     stream_text = stream_response.text
 
-    # The proposed event MUST follow the entered event for the same step.
-    entered_index = stream_text.find("event: v1.workflow.step.entered")
-    proposed_index = stream_text.find("event: v1.workflow.step.proposed")
-    assert entered_index > 0
-    assert proposed_index > entered_index
-    # And the proposal payload references the summary step.
-    assert '"step_id":"summary"' in stream_text[proposed_index:]
+    # The new conversational flow must emit v1.field.prompt for the first field.
+    assert "event: v1.field.prompt" in stream_text
+    # The old wizard events must no longer appear on the initial run.
+    assert "event: v1.workflow.step.entered" not in stream_text
+    assert "event: v1.input.requested" not in stream_text
 
 
 async def test_step_entered_emits_proposal_for_batch_at_submit_step(
@@ -864,9 +861,12 @@ async def test_step_entered_skips_proposal_when_no_essentials(
             AppStatus.should_exit_event = None
             await app.state.engine.dispose()
 
-    assert "event: v1.workflow.step.entered" in stream_text
-    # The summary step has no essentials in this patched contract, so no
-    # proposal event must appear in the stream.
+    # The new conversational flow emits v1.field.prompt regardless of whether
+    # the contract has essential_field_ids — the field prompt sequence is driven
+    # by the conversation phases, not the tab essentials.
+    assert "event: v1.field.prompt" in stream_text
+    # The old wizard-tab events must not appear.
+    assert "event: v1.workflow.step.entered" not in stream_text
     assert "event: v1.workflow.step.proposed" not in stream_text
     # ``monkeypatch.setattr`` restores the original lru_cache-wrapped loader at
     # teardown — we cleared its cache before patching so the next test gets a

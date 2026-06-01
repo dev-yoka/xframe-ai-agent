@@ -23,6 +23,9 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from xframe_agent.agent.budget import BudgetExceededError, LoopBudget
+from xframe_agent.agent.conversation.cursor import get_cursor
+from xframe_agent.agent.conversation.runner import emit_next_prompt
+from xframe_agent.agent.conversation.start import init_conversation_draft_payload
 from xframe_agent.agent.events import (
     EVENT_WORKFLOW_STEP_PROPOSED,
     append_run_event,
@@ -31,8 +34,6 @@ from xframe_agent.agent.guided_workflows import (
     CREATE_PRICING_REQUEST_CONTRACT_VERSION,
     CREATE_PRICING_REQUEST_INITIAL_STEP,
     CREATE_PRICING_REQUEST_WORKFLOW,
-    create_pricing_request_input_payload,
-    create_pricing_request_step_entered_payload,
     is_generic_create_pricing_request,
     latest_user_text,
     parse_create_pricing_request_submission,
@@ -55,6 +56,7 @@ from xframe_agent.models import (
     AgentRun,
     AgentRunStep,
     AgentToolCall,
+    AgentWorkflowDraft,
 )
 from xframe_agent.models.agent import utc_now
 from xframe_agent.observability.tracing import (
@@ -406,16 +408,15 @@ class ModelRunner:
         run: AgentRun,
         context: AuthContext,
     ) -> AgentRun:
+        """Start the conversational create-pricing-request flow."""
         run.started_at = run.started_at or utc_now()
-        assistant_text = (
-            "Let's set up the pricing request. I filled the basics so you can adjust "
-            "only what matters."
-        )
+
+        greeting = "Let's set up your pricing request. I'll ask you a few quick questions."
         msg = AgentMessage(
             conversation_id=run.conversation_id,
             user_id=context.user_id,
             role="assistant",
-            content=assistant_text,
+            content=greeting,
             source="agent",
             run_id=run.id,
         )
@@ -426,26 +427,42 @@ class ModelRunner:
             session,
             run_id=run.id,
             event_type="v1.message.delta",
-            payload={"message_id": msg.id, "delta": assistant_text},
+            payload={"message_id": msg.id, "delta": greeting},
         )
-        await append_run_event(
-            session,
-            run_id=run.id,
-            event_type="v1.workflow.step.entered",
-            payload=create_pricing_request_step_entered_payload(),
-        )
-        await _fanout_initial_step_suggestions(
-            session,
-            run_id=run.id,
-            context=context,
-            priceframe=self._priceframe,
-        )
-        await append_run_event(
-            session,
-            run_id=run.id,
-            event_type="v1.input.requested",
-            payload=create_pricing_request_input_payload(),
-        )
+
+        # Seed the workflow draft if absent
+        draft = await session.get(AgentWorkflowDraft, run.conversation_id)
+        if draft is None:
+            contract = load_contract(
+                CREATE_PRICING_REQUEST_WORKFLOW,
+                CREATE_PRICING_REQUEST_CONTRACT_VERSION,
+            )
+            draft = AgentWorkflowDraft(
+                conversation_id=run.conversation_id,
+                contract_id=CREATE_PRICING_REQUEST_WORKFLOW,
+                contract_version=CREATE_PRICING_REQUEST_CONTRACT_VERSION,
+                current_step_id=CREATE_PRICING_REQUEST_INITIAL_STEP,
+                payload=init_conversation_draft_payload(),
+                step_status={},
+            )
+            session.add(draft)
+            await session.flush()
+        else:
+            contract = load_contract(draft.contract_id, draft.contract_version)
+
+        try:
+            await emit_next_prompt(
+                session,
+                run_id=run.id,
+                contract=contract,
+                draft_payload=draft.payload or {},
+                cursor=get_cursor(draft.payload or {}),
+                auth_ctx=context,
+                priceframe=self._priceframe,
+            )
+        except Exception:  # noqa: BLE001, S110 — best-effort
+            pass
+
         run.status = "completed"
         run.completed_at = utc_now()
         run.updated_at = utc_now()
@@ -453,7 +470,7 @@ class ModelRunner:
             session,
             run_id=run.id,
             event_type="v1.run.completed",
-            payload={"workflow": "create_pricing_request"},
+            payload={"workflow": CREATE_PRICING_REQUEST_WORKFLOW},
         )
         await session.commit()
         return run
