@@ -20,6 +20,7 @@ from xframe_agent.auth.jwt import AuthContext
 from xframe_agent.db.base import Base
 from xframe_agent.models import (
     AgentConversation,
+    AgentMessage,
     AgentRun,
     AgentRunEvent,
     AgentRunStep,
@@ -392,3 +393,151 @@ async def test_runner_feeds_unknown_tool_error_back_to_model(
         run = await session.get(AgentRun, run_id)
         assert run is not None
         assert run.status == "completed"
+
+
+async def test_runner_streams_incremental_message_deltas(
+    db: tuple[Settings, AsyncEngine, Any, str],
+) -> None:
+    """Each provider text_delta is persisted as its own v1.message.delta and
+    the concatenation of all deltas equals the full assistant message exactly
+    once (no duplicate full-text event)."""
+    settings, _engine, factory, run_id = db
+
+    # A reply long enough that the redaction hold-back window is exceeded,
+    # forcing multiple emitted deltas across the chunk boundaries.
+    chunks = [
+        "Here is a long summary of your quotation. ",
+        "The corridor pricing looks healthy overall, ",
+        "with margins comfortably above the configured floor. ",
+        "No action is required at this time.",
+    ]
+    full_text = "".join(chunks)
+    provider = FakeProvider(
+        [
+            [StreamEvent(kind="text_delta", payload={"delta": c}) for c in chunks]
+            + [StreamEvent(kind="usage", payload={"input_tokens": 12, "output_tokens": 30})]
+        ]
+    )
+    router = ProviderFailoverRouter(providers=[provider])
+    runner = ModelRunner(
+        router=router,
+        settings=settings,
+        model="gemini-2.5-flash",
+        priceframe_factory=FakePriceFrame(),  # type: ignore[arg-type]
+    )
+
+    async with factory() as session:
+        run = await session.get(AgentRun, run_id)
+        assert run is not None
+        await runner.run(
+            session,
+            run=run,
+            context=_auth("agent.enabled", "agent.quotes.read"),
+            history=[
+                ChatMessage(
+                    role="user",
+                    content=[ContentBlock(type="text", payload={"text": "summarize"})],
+                )
+            ],
+        )
+
+    async with factory() as session:
+        run = await session.get(AgentRun, run_id)
+        assert run is not None and run.status == "completed"
+        events = (
+            (
+                await session.execute(
+                    select(AgentRunEvent)
+                    .where(AgentRunEvent.run_id == run_id)
+                    .order_by(AgentRunEvent.seq.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        deltas = [e for e in events if e.event_type == "v1.message.delta"]
+        # Multiple incremental deltas, not one big chunk.
+        assert len(deltas) >= 2
+        message_ids = {d.payload["message_id"] for d in deltas}
+        assert len(message_ids) == 1
+        # Concatenation of deltas equals the full message exactly once.
+        assert "".join(d.payload["delta"] for d in deltas) == full_text
+        # Event seq is monotonic and in order.
+        seqs = [e.seq for e in events]
+        assert seqs == sorted(seqs)
+        # The persisted message row matches the concatenation.
+        msg = (
+            (
+                await session.execute(
+                    select(AgentMessage).where(AgentMessage.run_id == run_id)
+                )
+            )
+            .scalars()
+            .one()
+        )
+        assert msg.content == full_text
+        assert run.output_message_id == msg.id
+
+
+async def test_runner_redacts_pii_spanning_delta_chunks(
+    db: tuple[Settings, AsyncEngine, Any, str],
+) -> None:
+    """A PII value split across two provider chunks must never appear
+    unredacted in any emitted delta, and the concatenation must equal the
+    redacted full text."""
+    settings, _engine, factory, run_id = db
+
+    # The email is deliberately split mid-token across two chunks so a naive
+    # per-chunk redaction would leak it.
+    chunks = ["Reach me at alice", "@example.com any time."]
+    provider = FakeProvider(
+        [
+            [StreamEvent(kind="text_delta", payload={"delta": c}) for c in chunks]
+            + [StreamEvent(kind="usage", payload={"input_tokens": 5, "output_tokens": 9})]
+        ]
+    )
+    router = ProviderFailoverRouter(providers=[provider])
+    runner = ModelRunner(
+        router=router,
+        settings=settings,
+        model="gemini-2.5-flash",
+        priceframe_factory=FakePriceFrame(),  # type: ignore[arg-type]
+    )
+
+    async with factory() as session:
+        run = await session.get(AgentRun, run_id)
+        assert run is not None
+        await runner.run(
+            session,
+            run=run,
+            context=_auth("agent.enabled", "agent.quotes.read"),
+            history=[
+                ChatMessage(
+                    role="user",
+                    content=[ContentBlock(type="text", payload={"text": "contact"})],
+                )
+            ],
+        )
+
+    async with factory() as session:
+        events = (
+            (
+                await session.execute(
+                    select(AgentRunEvent)
+                    .where(AgentRunEvent.run_id == run_id)
+                    .order_by(AgentRunEvent.seq.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        deltas = [e for e in events if e.event_type == "v1.message.delta"]
+        joined = "".join(d.payload["delta"] for d in deltas)
+        assert "alice@example.com" not in joined
+        for d in deltas:
+            assert "alice@example.com" not in d.payload["delta"]
+        assert "<PII:email>" in joined
+        # Concatenation equals the redacted full message.
+        from xframe_agent.agent.redaction import redact
+
+        assert joined == redact("".join(chunks)).text

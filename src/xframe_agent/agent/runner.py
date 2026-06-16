@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -288,31 +288,46 @@ class ModelRunner:
                     payload={"step": budget.steps, "kind": "model_call"},
                 )
 
+                # Create the assistant message row up front so its id is stable
+                # across the per-token delta events emitted during streaming. The
+                # content is filled in with the final redacted text once the
+                # provider stream drains.
+                msg = AgentMessage(
+                    conversation_id=run.conversation_id,
+                    user_id=context.user_id,
+                    role="assistant",
+                    content="",
+                    source="agent",
+                    run_id=run.id,
+                )
+                session.add(msg)
+                await session.flush()
+
+                streamer = _IncrementalDeltaStreamer(
+                    session=session,
+                    run_id=run.id,
+                    message_id=msg.id,
+                )
                 proposals, assistant_text, usage = await self._call_provider(
                     messages=messages,
                     tools=tools,
                     budget=budget,
+                    on_text=streamer.on_text,
                 )
 
                 if assistant_text:
                     redacted = redact(assistant_text)
-                    msg = AgentMessage(
-                        conversation_id=run.conversation_id,
-                        user_id=context.user_id,
-                        role="assistant",
-                        content=redacted.text,
-                        source="agent",
-                        run_id=run.id,
-                    )
-                    session.add(msg)
-                    await session.flush()
-                    await append_run_event(
-                        session,
-                        run_id=run.id,
-                        event_type="v1.message.delta",
-                        payload={"message_id": msg.id, "delta": redacted.text},
-                    )
+                    msg.content = redacted.text
+                    # Flush any redacted tail still held back behind the safety
+                    # window so the sum of emitted deltas equals the full
+                    # redacted message exactly once.
+                    await streamer.finish(redacted.text)
                     run.output_message_id = msg.id
+                else:
+                    # No assistant text this turn (pure tool call). Drop the empty
+                    # placeholder row so we don't persist blank assistant messages.
+                    await session.delete(msg)
+                    await session.flush()
 
                 await self._close_step(step, status="completed")
                 await append_run_event(
@@ -543,6 +558,7 @@ class ModelRunner:
         messages: Sequence[ChatMessage],
         tools: Sequence[ToolDefinition[Any, Any]],
         budget: LoopBudget,
+        on_text: Callable[[str], Awaitable[None]] | None = None,
     ) -> tuple[list[ProposedCall], str, dict[str, int]]:
         proposals: list[ProposedCall] = []
         assistant_text = ""
@@ -554,7 +570,12 @@ class ModelRunner:
             model=self._model,
             max_output_tokens=self._settings.max_output_tokens_per_run,
         ):
+            prev_text = assistant_text
             assistant_text, usage = _consume_event(event, proposals, assistant_text, usage)
+            # Fire the incremental callback only when this event actually grew
+            # the assistant text (i.e. a text_delta chunk arrived).
+            if on_text is not None and assistant_text != prev_text:
+                await on_text(assistant_text)
 
         budget.record_usage(
             model=self._model,
@@ -827,6 +848,86 @@ class ModelRunner:
             event_type="v1.run.error",
             payload={"cause": cause, "message": message, "budget": budget.snapshot()},
         )
+
+
+# Number of trailing characters of the redacted-so-far text held back from each
+# incremental delta. Redaction is regex-based and a PII match (card / phone /
+# email / code) can still be forming at the boundary of the accumulated text, so
+# emitting that tail eagerly could leak unredacted characters before the match
+# completes. The longest pattern (a 19-digit card with single-char separators)
+# is ~37 chars; 64 is a comfortable margin. The held-back tail is always flushed
+# in :meth:`_IncrementalDeltaStreamer.finish`, so nothing is dropped.
+_REDACTION_TAIL_HOLDBACK = 64
+
+
+class _IncrementalDeltaStreamer:
+    """Persist one ``v1.message.delta`` per provider token, redaction-safe.
+
+    On each provider ``text_delta`` we are handed the *full accumulated raw
+    text* so far. We redact that whole string (never a single chunk — a PII
+    pattern can span chunk boundaries) and emit, as a delta, only the portion of
+    the redacted text that lies beyond what we have already emitted *and* before
+    the safety hold-back window. Each emitted delta is committed immediately so a
+    concurrent SSE poller (separate DB session) sees it mid-stream.
+
+    Invariant: the concatenation of every emitted ``delta`` equals the final
+    redacted message exactly once. The unemitted suffix is flushed by
+    :meth:`finish`.
+    """
+
+    def __init__(
+        self,
+        *,
+        session: AsyncSession,
+        run_id: str,
+        message_id: str,
+    ) -> None:
+        self._session = session
+        self._run_id = run_id
+        self._message_id = message_id
+        self._emitted = 0  # number of redacted chars already sent as deltas
+
+    async def on_text(self, accumulated_raw: str) -> None:
+        """Handle a new accumulated raw-text snapshot from the provider."""
+
+        redacted_so_far = redact(accumulated_raw).text
+        # Hold back a trailing window that could still be part of an in-progress
+        # PII match, but never re-emit already-sent characters.
+        safe_len = max(self._emitted, len(redacted_so_far) - _REDACTION_TAIL_HOLDBACK)
+        if safe_len <= self._emitted:
+            return
+        chunk = redacted_so_far[self._emitted : safe_len]
+        self._emitted = safe_len
+        await self._emit(chunk)
+
+    async def finish(self, final_redacted_text: str) -> None:
+        """Emit the redacted tail held back during streaming.
+
+        Called once after the stream drains with the authoritative final
+        redacted text (which matches what is persisted on the message row).
+        """
+
+        if len(final_redacted_text) > self._emitted:
+            chunk = final_redacted_text[self._emitted :]
+            self._emitted = len(final_redacted_text)
+            await self._emit(chunk)
+        elif self._emitted == 0:
+            # Edge case: text that redacts to empty (e.g. only control chars).
+            # Emit an empty delta so clients still observe the message id.
+            await self._emit("")
+
+    async def _emit(self, delta: str) -> None:
+        await append_run_event(
+            self._session,
+            run_id=self._run_id,
+            event_type="v1.message.delta",
+            payload={"message_id": self._message_id, "delta": delta},
+        )
+        # Commit so the row is visible to the SSE poller, which reads through a
+        # separate session. ``append_run_event`` only flushes; without this the
+        # incremental deltas would stay invisible until the run's terminal
+        # commit, defeating live streaming.
+        await self._session.commit()
 
 
 def _consume_event(
