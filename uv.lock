@@ -1258,6 +1258,7 @@ dependencies = [
     { name = "redis" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "sse-starlette" },
+    { name = "starlette" },
     { name = "structlog" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1284,7 +1285,7 @@ requires-dist = [
     { name = "arq", specifier = ">=0.26.0,<0.27.0" },
     { name = "asyncpg", specifier = ">=0.30.0,<0.31.0" },
     { name = "boto3", specifier = ">=1.34.0,<2.0.0" },
-    { name = "fastapi", specifier = ">=0.115.0,<1.0.0" },
+    { name = "fastapi", specifier = "==0.136.1" },
     { name = "google-genai", specifier = ">=2.5.0" },
     { name = "httpx", specifier = ">=0.28.0,<0.29.0" },
     { name = "langfuse", specifier = ">=2.0.0,<3.0.0" },
@@ -1300,6 +1301,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0,<0.9.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.36,<3.0.0" },
     { name = "sse-starlette", specifier = ">=2.1.0,<3.0.0" },
+    { name = "starlette", specifier = "==0.52.1" },
     { name = "structlog", specifier = ">=24.4.0,<25.0.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0,<0.35.0" },
 ]
