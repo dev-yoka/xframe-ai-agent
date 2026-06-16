@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -88,6 +89,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(Exception)
     async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        # Log the full traceback server-side. Without this, a registered
+        # Exception handler suppresses Starlette's own traceback output, so a
+        # 500 leaves no diagnostic trail in the logs. The client response stays
+        # generic (no internals leaked).
+        structlog.get_logger(__name__).exception(
+            "unhandled_exception",
+            path=request.url.path,
+            method=request.method,
+            error_type=type(exc).__name__,
+        )
         return JSONResponse(
             status_code=500,
             content=ErrorResponse(
